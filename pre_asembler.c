@@ -3,8 +3,6 @@
 
 #define START_MCRO "mcro"
 
-data* root = NULL;
-
 int macro_name_valid(char*, int);
 
 void print_err(void);
@@ -16,7 +14,6 @@ void copy_file(FILE* source, FILE* dest);
 int main(int argc, char* argv[])
 {
     FILE *file_asm;
-
     if (argc < 2) {
         fprintf(stderr, "did not get any assembly file");
         return 1;
@@ -31,43 +28,42 @@ int main(int argc, char* argv[])
 /*copping source file to the destination file*/
 void copy_file(FILE* source, FILE* dest)
 {
+    int len = 0;
     char buffer[MAX_IN_LINE], *word;
     char line_copy[MAX_IN_LINE];
     data* mcro;
-    while (fgets(buffer, MAX_IN_LINE, source) != NULL)
+    while(fgets(buffer, MAX_IN_LINE, source) != NULL)
     {
         strcpy(line_copy, buffer);
         word = strtok(line_copy, " \t\n");
-
-        if (word == NULL)
+        if (word == NULL)/*empty line*/
         {
-            fputs(buffer, dest); /*empty line*/
+            fputs(buffer, dest);
             continue;
         }
-
-        /*checking if there is only one word*/
-        /*checking if after macro name there are only white chars*/
-        char *original = buffer;
-        while (*original == ' ' || *original == '\t') original++; /*skipping white chars at start*/
-
-        int len = strlen(word);
-        if (strncmp(original, word, len) == 0 &&
-            (original[len] == '\0' || original[len] == '\n' || original[len] == ' ' || original[len] == '\t'))
+        if(strtok(NULL, " \t\n") != NULL)/*not a mcro*/
         {
-            /*might be a mcro*/
-            mcro = find_macro(root, word);
-            if (mcro)
+            fputs(buffer, dest);
+        }
+        else/*might be a mcro*/
+        {
+            len = strlen(buffer);
+            if (len > 0 && buffer[len-1] != '\n') {
+                buffer[len] = '\n';
+                buffer[len+1] = '\0';
+            }
+            mcro = find_node(root, strtok(buffer, " "));
+            if(mcro == NULL)
+            {
+                fputs(buffer, dest);
+            }
+            else
             {
                 fputs(mcro->code, dest);
-                continue;
             }
         }
-
-        /*if normal line*/
-        fputs(buffer, dest);
     }
 }
-
 
 
 
@@ -152,7 +148,7 @@ FILE* get_all_macros(FILE* curr_read, FILE* curr_write, int argc, char** argv)
                         {
                             free(macro_name);
                             add_error("ERR: illegal text after macro name", count_line);
-
+                            continue;
                         }
                         macro_code = get_macro_code(curr_read);/*getting the code of the macro*/
                         if(root == NULL)/*if our tree of macros is empty*/
@@ -161,7 +157,7 @@ FILE* get_all_macros(FILE* curr_read, FILE* curr_write, int argc, char** argv)
                         }
                         else
                         {
-                            root = insert_avl(root, macro_name, macro_code, count_line);
+                            add_node(&root, macro_name, macro_code);
                         }
                         free(macro_name);
                     }
@@ -175,10 +171,16 @@ FILE* get_all_macros(FILE* curr_read, FILE* curr_write, int argc, char** argv)
                 }
                 else
                 {
-                    fputs(buffer, curr_write);/*if line is not a comment and not a mcro just put it in the curr_write file*/
+                    while(word != NULL)/*if line is not a comment and not a mcro just put it in the curr_write file*/
+                    {
+                        fputs(word, curr_write);/*puts the word in the curr_write file*/
+                        fputc(' ', curr_write);/*adding whit space*/
+                        word = strtok(NULL, " ");/*getting next word*/
+                    }
                 }
             }
         }
+        fputc('\n', curr_write);
         fclose(curr_write);/*closing the file*/
         curr_write = fopen("temp.asm", "r");/*open it as read file*/
         if (!curr_write)
@@ -187,7 +189,7 @@ FILE* get_all_macros(FILE* curr_read, FILE* curr_write, int argc, char** argv)
             return NULL;
         }
         copy_file(curr_write, res);/*copping the file*/
-        fclose(curr_write);/*close write file*/
+        remove("temp.asm");/*close write file*/
         fclose(curr_read);/*close read file*/
     }
     return res;

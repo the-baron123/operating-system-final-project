@@ -1,4 +1,4 @@
-/*in this file we are going to use structs (AVL tree) to get all of the macros and save their code!*/
+/*in this file we are going to use structs (linked list) to get all of the macros and save their code!*/
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -16,15 +16,71 @@ typedef struct errors
 } errors;
 
 errors* all_err;
-/*the struct build for the AVL tree to save the macro names and their code*/
+/*the struct build for the linked list to save the macro names and their code*/
 typedef struct data
 {
     char* name;
     char* code;
-    struct data* low;
-    struct data* high;
-    int height;
+    struct data* next;
 } data;
+
+data* root = NULL;
+
+/*creating a node*/
+data* create_node(const char* name, const char* code) {
+    data* new_node = (data*)malloc(sizeof(data));
+    if (new_node == NULL) {
+        fprintf(stderr, "Memory allocation failed for node\n");
+        exit(1);
+    }
+
+    new_node->name = (char*)malloc(strlen(name) + 1);
+    if (new_node->name == NULL) {
+        fprintf(stderr, "Memory allocation failed for name\n");
+        free(new_node);
+        exit(1);
+    }
+    strcpy(new_node->name, name);
+
+    new_node->code = (char*)malloc(strlen(code) + 1);
+    if (new_node->code == NULL) {
+        fprintf(stderr, "Memory allocation failed for code\n");
+        free(new_node->name);
+        free(new_node);
+        exit(1);
+    }
+    strcpy(new_node->code, code);
+
+    new_node->next = NULL;
+    return new_node;
+}
+
+/*appending to the linked list*/
+void add_node(data** head, const char* name, const char* code) {
+    data* new_node = create_node(name, code), *temp;
+
+    if (*head == NULL) {
+        *head = new_node;
+        return;
+    }
+
+    temp = *head;
+    while (temp->next != NULL)
+        temp = temp->next;
+
+    temp->next = new_node;
+}
+
+/*searching method by name*/
+data* find_node(data* head, const char* name) {
+    while (head != NULL) {
+        if (strcmp(head->name, name) == 0)
+            return head;
+        head = head->next;
+    }
+    return NULL; /*did not found a match*/
+}
+
 
 /*this function adds an errors to the errors list! and if the linked list dose not exist it create it*/
 void add_error(const char* err_msg, int line) {
@@ -83,153 +139,6 @@ int check_if_operation_in_language(const char* name)
     return -1;
 }
 
-/*creating a new tree*/
-data* create_node(const char* name, const char* code)
-{
-    data* n = (data*)malloc(sizeof(data));
-    n->code = (char*)malloc(sizeof(char)*strlen(code)+1);
-    if(!n->code)
-    {
-        printf("Error: failed to allocate the memory\n");
-        free(n);
-        exit(1);
-    }
-    n->name = (char*)malloc(sizeof(char)*strlen(name)+1);
-    if(!n->name)
-    {
-        printf("Error: failed to allocate the memory\n");
-        free(n);
-        exit(1);
-    }
-    strcpy(n->code ,code);
-    n->height = 1;/*tree height starting from 1 and not a 0*/
-    n->high = NULL;
-    n->low = NULL;
-    strcpy(n->name, name);
-    return n;
-}
-
-/*returns the hight of specific node in the tree*/
-int get_height(data* n)
-{
-    if (n == NULL) return 0;
-    return n->height;
-}
-
-/*getting the balance of specific node in the tree*/
-int get_balance(data* n)
-{
-    if (n == NULL) return 0;
-    return get_height(n->low) - get_height(n->high);
-}
-
-/*rotating right the tree*/
-data* rotate_right(data* prev_root)
-{
-    data* new_root = prev_root->low;
-    data* temp = new_root->high;
-    /*making the rotate*/
-    new_root->high = prev_root;
-    prev_root->low = temp;
-
-    /*updating the height to max of sons+1*/
-    prev_root->height = MAX(get_height(prev_root->low), get_height(prev_root->high)) + 1;
-    new_root->height = MAX(get_height(new_root->low), get_height(new_root->high)) + 1;
-
-    return new_root;
-}
-
-/*rotating left the tree*/
-data* rotate_left(data* prev_root)
-{
-    data* new_root = prev_root->high;
-    data* temp = new_root->low;
-
-    /*making the rotate*/
-    new_root->low = prev_root;
-    prev_root->high = temp;
-
-    /*updating the height to max of sons+1*/
-    prev_root->height = MAX(get_height(prev_root->low), get_height(prev_root->high)) + 1;
-    new_root->height = MAX(get_height(new_root->low), get_height(new_root->high)) + 1;
-
-    return new_root;
-}
-
-/*inserting a node to the AVL tree*/
-data* insert_avl(data* root, const char* name, const char* code, int line)
-{
-    int cmp = 0, balance = 0;
-    /*normal inserting to tree*/
-    if (root == NULL)
-    {
-        return create_node(name, code);
-    }
-    cmp = strcmp(name, root->name);
-    if (cmp < 0)
-    {
-        root->low = insert_avl(root->low, name, code, line);
-    }
-    else if (cmp > 0)
-    {
-        root->high = insert_avl(root->high, name, code, line);
-    }
-
-    else
-    {
-        add_error("ERR: macro appeared twice", line);
-        return NULL;/*if already appeared in the tree we will report the err*/
-    }
-
-    /*updating the height*/
-    root->height = 1 + MAX(get_height(root->low), get_height(root->high));
-
-    /*checking if the tree is balanced*/
-    balance = get_balance(root);
-
-    /*using our 4 cases*/
-
-    /*1) LL rotate to the left twice*/
-    if (balance > 1 && strcmp(name, root->low->name) < 0)
-    {
-        return rotate_right(root);
-    }
-    /*2) RR rotate to the right twice*/
-    if (balance < -1 && strcmp(name, root->high->name) > 0)
-    {
-        return rotate_left(root);
-    }
-    /*3) LR rotate to the left and then to the right*/
-    if (balance > 1 && strcmp(name, root->low->name) > 0)
-    {
-        root->low = rotate_left(root->low);
-        return rotate_right(root);
-    }
-    /*4) RL rotate to the right and then to the left*/
-    if (balance < -1 && strcmp(name, root->high->name) < 0)
-    {
-        root->high = rotate_right(root->high);
-        return rotate_left(root);
-    }
-
-    return root;
-}
-
-/*binary search*/
-data* find_macro(data* root, const char* name)
-{
-    int cmp;
-    if (root == NULL)
-        return NULL;
-
-    cmp = strcmp(name, root->name);
-    if (cmp == 0)
-        return root;
-    else if (cmp < 0)
-        return find_macro(root->low, name);
-    else
-        return find_macro(root->high, name);
-}
 /*this function gets a position in an assembly file and gets its name and code and put it in the AVL tree*/
 char* get_macro_code(FILE* asm_file)
 {
