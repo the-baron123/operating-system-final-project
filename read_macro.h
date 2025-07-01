@@ -7,13 +7,13 @@
 
 /* Maximum macro buffer size */
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
-
-/* Array of all operations in the language */
-extern char *oparations[];
+/*Maximum chars in a line*/
+#define MAX_IN_LINE 82
 
 /* Struct for error handling (linked list) */
 typedef struct errors {
     char* name_err;
+    int line;
     struct errors* next;
 } errors;
 
@@ -30,7 +30,7 @@ typedef struct data {
 } data;
 
 /* Error handling */
-void add_error(const char* err_msg);
+void add_error(const char* err_msg, int line);
 
 /* Macro operation name validation */
 int check_if_operation_in_language(const char* name);
@@ -41,9 +41,9 @@ int get_height(data* n);
 int get_balance(data* n);
 data* rotate_right(data* prev_root);
 data* rotate_left(data* prev_root);
-data* insert_avl(data* root, const char* name, const char* code);
-
+data* insert_avl(data* root, const char* name, const char* code, int line);
+data* find_macro(data* root, const char* name);
 /* Macro code extraction */
-char* get_macro_code(FILE* asm_file, data* root);
+char* get_macro_code(FILE* asm_file);
 
 #endif /* READ_MACRO_H */

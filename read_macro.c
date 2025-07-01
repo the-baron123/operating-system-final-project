@@ -5,13 +5,13 @@
 
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 
-/*creating an array of all the operation in the language*/
-char *oparations[] = {"mov", "cmp", "add", "sub", "not", "clr", "lea", "inc", "dec", "jmp", "bne", "red", "prn", "jsr", "rts", "stop"};
+#define MAX_IN_LINE 82
 
 /*from here we will print all of ours errors and if there are none we will */
 typedef struct errors
 {
     char* name_err;
+    int line;
     struct errors* next;
 } errors;
 
@@ -27,35 +27,41 @@ typedef struct data
 } data;
 
 /*this function adds an errors to the errors list! and if the linked list dose not exist it create it*/
-void add_error(const char* err_msg)
-{
-    errors* new_err = (errors*)malloc(sizeof(errors));
-    if (!new_err)
-    {
+void add_error(const char* err_msg, int line) {
+    errors* new_err;
+
+    /* Allocate memory for new error node */
+    new_err = (errors*)malloc(sizeof(errors));
+    if (new_err == NULL) {
         fprintf(stderr, "Error: failed to allocate memory for error struct\n");
         exit(1);
     }
 
-    new_err->name_err = (char*)malloc(strlen(err_msg) + 1);
-    if (!new_err->name_err)
-    {
+    /* Allocate memory for the error message */
+    new_err->name_err = (char*)malloc(strlen(err_msg) + 1); /*+1 for '\0'*/
+    if (new_err->name_err == NULL) {
         fprintf(stderr, "Error: failed to allocate memory for error message\n");
         free(new_err);
         exit(1);
     }
 
+    /* Copy the message */
     strcpy(new_err->name_err, err_msg);
+
+    /* Store line number */
+    new_err->line = line;
+
+    /* Initialize next pointer */
     new_err->next = NULL;
 
-    if (all_err == NULL)
-    {
+    /* Insert into the linked list */
+    if (all_err == NULL) {
         all_err = new_err;
-    }
-    else
-    {
+    } else {
         errors* temp = all_err;
-        while (temp->next != NULL)
+        while (temp->next != NULL) {
             temp = temp->next;
+        }
         temp->next = new_err;
     }
 }
@@ -63,7 +69,10 @@ void add_error(const char* err_msg)
 /*returns 1 if 'name' is a valid name of operation and returns -1 if 'name' is not a valid name of oparation*/
 int check_if_operation_in_language(const char* name)
 {
+    /*creating an array of all the operation in the language*/
+    char *oparations[] = {"mov", "cmp", "add", "sub", "not", "clr", "lea", "inc", "dec", "jmp", "bne", "red", "prn", "jsr", "rts", "stop"};
     int i = 0;
+
     for(i = 0; i<16; i++)
     {
         if(strcmp(name, oparations[i]) == 0)
@@ -148,7 +157,7 @@ data* rotate_left(data* prev_root)
 }
 
 /*inserting a node to the AVL tree*/
-data* insert_avl(data* root, const char* name, const char* code)
+data* insert_avl(data* root, const char* name, const char* code, int line)
 {
     int cmp = 0, balance = 0;
     /*normal inserting to tree*/
@@ -159,16 +168,16 @@ data* insert_avl(data* root, const char* name, const char* code)
     cmp = strcmp(name, root->name);
     if (cmp < 0)
     {
-        root->low = insert_avl(root->low, name, code);
+        root->low = insert_avl(root->low, name, code, line);
     }
     else if (cmp > 0)
     {
-        root->high = insert_avl(root->high, name, code);
+        root->high = insert_avl(root->high, name, code, line);
     }
 
     else
     {
-        add_error("ERR: macro appeared twice");
+        add_error("ERR: macro appeared twice", line);
         return NULL;/*if already appeared in the tree we will report the err*/
     }
 
@@ -205,21 +214,38 @@ data* insert_avl(data* root, const char* name, const char* code)
 
     return root;
 }
-/*this function gets a position in an assembly file and gets its name and code and put it in the AVL tree*/
-char* get_macro_code(FILE* asm_file, data* root)
+
+/*binary search*/
+data* find_macro(data* root, const char* name)
 {
-    char *macro_code, buffer[83], end[] = "mcroend";
+    int cmp;
+    if (root == NULL)
+        return NULL;
+
+    cmp = strcmp(name, root->name);
+    if (cmp == 0)
+        return root;
+    else if (cmp < 0)
+        return find_macro(root->low, name);
+    else
+        return find_macro(root->high, name);
+}
+/*this function gets a position in an assembly file and gets its name and code and put it in the AVL tree*/
+char* get_macro_code(FILE* asm_file)
+{
+    char *macro_code, buffer[MAX_IN_LINE], end[] = "mcroend";
     unsigned int position = ftell(asm_file);
     int count_letters = 0;
 
     buffer[0] = '\0';
     while(strcmp(buffer, end) != 0)
     {
-        if(fgets(buffer, 83, asm_file) == NULL)
+        if(fgets(buffer, MAX_IN_LINE, asm_file) == NULL)
         {
-            add_error("ERR: macro did not end or fgets() failed");
+            fprintf(stderr, "ERR: macro did not end or fgets() failed");
             return NULL;
         }
+
         buffer[strcspn(buffer, "\n")] = '\0';
         if(buffer[0] != ';' && strcmp(buffer, end) != 0)
         {
@@ -241,7 +267,7 @@ char* get_macro_code(FILE* asm_file, data* root)
     {
         if(fgets(buffer, 83, asm_file) == NULL)
         {
-            add_error("ERR: macro did not end or fgets() failed");
+            fprintf(stderr, "ERR: macro did not end or fgets() failed");
             return NULL;
         }
 
