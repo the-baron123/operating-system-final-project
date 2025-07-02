@@ -73,10 +73,11 @@ void add_node(data** head, const char* name, const char* code) {
 
 /*searching method by name*/
 data* find_node(data* head, const char* name) {
-    while (head != NULL) {
-        if (strcmp(head->name, name) == 0)
-            return head;
-        head = head->next;
+    data* head1 = head;
+    while (head1 != NULL) {
+        if (strcmp(head1->name, name) == 0)
+            return head1;
+        head1 = head1->next;
     }
     return NULL; /*did not found a match*/
 }

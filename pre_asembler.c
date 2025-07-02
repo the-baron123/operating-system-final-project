@@ -1,6 +1,6 @@
 /*in this file we are going to get an ".am" file(assembly file) and we are going to wrote the ".am" file as it is bate replace all macros in their code lines*/
 #include "read_macro.h"
-
+#include <ctype.h>
 #define START_MCRO "mcro"
 
 int macro_name_valid(char*, int);
@@ -20,6 +20,14 @@ int main(int argc, char* argv[])
     }
 
     file_asm = get_all_macros(NULL, NULL, argc, argv);
+    if (remove("temp.asm") == 0) /*remove write file that opened before*/
+    {
+        printf("File deleted successfully\n");
+    }
+    else
+    {
+        perror("Error deleting file");
+    }
 
     fclose(file_asm);
     return 0;
@@ -30,18 +38,20 @@ void copy_file(FILE* source, FILE* dest)
 {
     int len = 0;
     char buffer[MAX_IN_LINE], *word;
-    char line_copy[MAX_IN_LINE];
+    char line_copy[MAX_IN_LINE], *save;
     data* mcro;
     while(fgets(buffer, MAX_IN_LINE, source) != NULL)
     {
         strcpy(line_copy, buffer);
-        word = strtok(line_copy, " \t\n");
+        save = line_copy;/*save line_copy place before possible changes*/
+        while(*save != '\0' && isspace(*save)) save++;/*ignore all white spaces*/
+        word = strtok(save, " ");/*word is the first word in line_copy(buffer)*/
         if (word == NULL)/*empty line*/
         {
             fputs(buffer, dest);
             continue;
         }
-        if(strtok(NULL, " \t\n") != NULL)/*not a mcro*/
+        if(strtok(NULL, " ") != NULL)/*not a mcro*/
         {
             fputs(buffer, dest);
         }
@@ -52,7 +62,7 @@ void copy_file(FILE* source, FILE* dest)
                 buffer[len] = '\n';
                 buffer[len+1] = '\0';
             }
-            mcro = find_node(root, strtok(buffer, " "));
+            mcro = find_node(root, word);
             if(mcro == NULL)
             {
                 fputs(buffer, dest);
@@ -64,8 +74,6 @@ void copy_file(FILE* source, FILE* dest)
         }
     }
 }
-
-
 
 /*checks if the name is valid*/
 int macro_name_valid(char* word, int line)
@@ -84,6 +92,7 @@ int macro_name_valid(char* word, int line)
     }
     return 1;
 }
+
 /*A function that print all of the errs*/
 void print_err()
 {
@@ -189,7 +198,6 @@ FILE* get_all_macros(FILE* curr_read, FILE* curr_write, int argc, char** argv)
             return NULL;
         }
         copy_file(curr_write, res);/*copping the file*/
-        remove("temp.asm");/*close write file*/
         fclose(curr_read);/*close read file*/
     }
     return res;
