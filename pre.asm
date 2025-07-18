@@ -1,48 +1,45 @@
-.entry LOOP
- .entry LENGTH
- .extern L3
- .extern W
- MAIN: mov M1[r2][r7],W
- add r2,STR
- LOOP: jmp W
- prn #-5
- sub r1, r4
- inc K
+
  
-hi 
- mov M1[r3][r3],r3
- bne L3
+asgdvz
+vadvc
  
-this is a 
- END: stop
- STR: .string “abcdef”
- LENGTH: .data 6,-9,15
+hello this is the first mcro
  
-mcro 
- K: .data 22
- M1: .mat [2][2] 1,2,3,4
- first 
+this is second
+ 
+ 
+and this is the third
+ 
+ 
+ 
+hello this is the first mcro
+ 
 asssxscs
- as
- c
- sc
+as
+c
+sc
  
- t
- h
- i
- s
+t
+h
+i
+s
  
- i
- s
+i
+s
  
  an asembly
  
- sds
- sd
- sd
- ff
+sds
  
-hi 
- f
-this is anasembly 
-this is anasembly 
+sd
+sd
+ff
+ 
+hello this is the first mcro
+ 
+f
+this is anasembly
+ 
+this is anasembly
+hello this is the first mcro
+ 

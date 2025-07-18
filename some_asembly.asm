@@ -1,37 +1,24 @@
 mcro first
-hi
+hello this is the first mcro
 mcroend
-mcro sec
-this is a
+mcro second
+this is second
 mcroend
 mcro third
-mcro
+and this is the third
 mcroend
-; file ps.as
-.entry LOOP
-.entry LENGTH
-.extern L3
-.extern W
-MAIN: mov M1[r2][r7],W
- add r2,STR
-LOOP: jmp W
- prn #-5
- sub r1, r4
- inc K
 
-	first
 
- mov M1[r3][r3],r3
- bne L3
+asgdvz
+vadvc
 
-sec
+first
 
-END: stop
-STR: .string “abcdef”
-LENGTH: .data 6,-9,15
+second
+
 
 third
 
-K: .data 22
-M1: .mat [2][2] 1,2,3,4
+
+
 first
