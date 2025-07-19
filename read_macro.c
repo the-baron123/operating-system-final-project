@@ -30,7 +30,7 @@ typedef struct data
 data* root = NULL;
 
 /*this function adds an errors to the errors list! and if the linked list dose not exist it create it*/
-void add_error(const char* err_msg, int line) {
+void add_error(const char* err_msg, int line, char* name_file) {
     errors* new_err;
 
     /* Allocate memory for new error node */
@@ -41,7 +41,7 @@ void add_error(const char* err_msg, int line) {
     }
 
     /* Allocate memory for the error message */
-    new_err->name_err = (char*)malloc(strlen(err_msg) + 1); /*+1 for '\0'*/
+    new_err->name_err = (char*)malloc(strlen(err_msg)+strlen(name_file) + 1); /*+1 for '\0'*/
     if (new_err->name_err == NULL) {
         fprintf(stderr, "Error: failed to allocate memory for error message\n");
         free(new_err);
@@ -50,6 +50,8 @@ void add_error(const char* err_msg, int line) {
 
     /* Copy the message */
     strcpy(new_err->name_err, err_msg);
+    /*adding the file name*/
+    strcat(new_err->name_err, name_file);
 
     /* Store line number */
     new_err->line = line;
@@ -58,11 +60,15 @@ void add_error(const char* err_msg, int line) {
     new_err->next = NULL;
 
     /* Insert into the linked list */
-    if (all_err == NULL) {
+    if (all_err == NULL)
+    {
         all_err = new_err;
-    } else {
+    }
+    else
+    {
         errors* temp = all_err;
-        while (temp->next != NULL) {
+        while (temp->next != NULL)
+        {
             temp = temp->next;
         }
         temp->next = new_err;
@@ -148,7 +154,7 @@ void copy_file(FILE* source, FILE* dest)
         word = strtok(save, " ");/*word is the first word in line_copy(buffer)*/
         if (word == NULL)/*empty line*/
         {
-            fputs(buffer, dest);
+            continue;/*do nothing*/
         }
         else if(strtok(NULL, " ") != NULL)/*not a mcro because it have more than 2 words in it*/
         {
@@ -171,39 +177,22 @@ void copy_file(FILE* source, FILE* dest)
         }
     }
 }
-
-int macro_name_valid(char* word, int line)
+/*returns 1 if 'name' is a valid name of operation and returns 0 if 'name' is not a valid name of oparation*/
+int macro_name_valid(char* word, int line, int argc, char** argv)
 {
     /*creating an array of all the operation in the language*/
-    char *oparations[] = {"mov", "cmp", "add", "sub", "not", "clr", "lea", "inc", "dec", "jmp", "bne", "red", "prn", "jsr", "rts", "stop"};
+    char *oparations[] = {"mov\n", "cmp\n", "add\n", "sub\n", "not\n", "clr\n", "lea\n", "inc\n", "dec\n", "jmp\n", "bne\n", "red\n", "prn\n", "jsr\n", "rts\n", "stop\n"};
     int i = 0;
 
     for(i = 0; i < 16;i++)
     {
         if(strcmp(word, oparations[i]) == 0)
         {
-            add_error("ERR: mcro name is operation name(invalid name)", line);
+            add_error("ERR: mcro name is operation name(invalid name) in file name: ", line, argv[argc]);
             return 0;
         }
     }
     return 1;
-}
-
-/*returns 1 if 'name' is a valid name of operation and returns -1 if 'name' is not a valid name of oparation*/
-int check_if_operation_in_language(const char* name)
-{
-    /*creating an array of all the operation in the language*/
-    char *oparations[] = {"mov", "cmp", "add", "sub", "not", "clr", "lea", "inc", "dec", "jmp", "bne", "red", "prn", "jsr", "rts", "stop"};
-    int i = 0;
-
-    for(i = 0; i<16; i++)
-    {
-        if(strcmp(name, oparations[i]) == 0)
-        {
-            return 1;
-        }
-    }
-    return -1;
 }
 
 /*this function gets a position in an assembly file and gets its name and code and put it in the AVL tree*/
@@ -283,7 +272,7 @@ FILE* get_all_macros(FILE* curr_read, FILE* curr_write, int argc, char** argv)
             return NULL;
         }
 
-        while(fgets(buffer, MAX_IN_LINE, curr_read) != NULL)/*start getting all of the macros from the current files*/
+        while(fgets(buffer, MAX_IN_LINE, curr_read) != NULL)/*start getting all of the macros and code from the current files*/
         {
             len = strlen(buffer);
             if (buffer[len-1] != '\n')/*checks if the line ended with \n if not fix it*/
@@ -295,8 +284,7 @@ FILE* get_all_macros(FILE* curr_read, FILE* curr_write, int argc, char** argv)
             count_line++;
             if(strlen(buffer) == MAX_IN_LINE - 1 && (buffer[strlen(buffer)-1] != '\n'))/*checking if the line in the file is too long*/
             {
-                add_error("ERR: too much chars in line", count_line);
-                fprintf(stderr, "hi I am in the file %s", argv[num_file]);
+                add_error("ERR: too much chars in line in file name: ", count_line, argv[num_file]);
             }
             if(buffer[0] != ';')/*if the line is not a comment*/
             {
@@ -304,9 +292,9 @@ FILE* get_all_macros(FILE* curr_read, FILE* curr_write, int argc, char** argv)
                 if(strcmp(word, START_MCRO) == 0)/*if the first word is start of macro collect it*/
                 {
                     word = strtok(NULL, " ");/*getting the name of macro*/
-                    if(strtok(NULL, " ") != NULL)/*checking if line has illigal text*/
+                    if(strtok(NULL, " ") != NULL)/*checking if line has illegal text*/
                     {
-                        add_error("ERR: illegal text after macro name", count_line);
+                        add_error("ERR: illegal text after macro name in file name: ", count_line, argv[num_file]);
                         continue;
                     }
                     save = word;
@@ -317,7 +305,7 @@ FILE* get_all_macros(FILE* curr_read, FILE* curr_write, int argc, char** argv)
                         save++;
                         *save = '\0';
                     }
-                    check_name_validation = macro_name_valid(word, count_line);/*check if name is valid*/
+                    check_name_validation = macro_name_valid(word, count_line, num_file, argv);/*check if mcro name is valid*/
                     if(check_name_validation == 1)
                     {
                         macro_name = (char*)malloc(strlen(word)*sizeof(char)+1);/*allocate memory*/
@@ -339,9 +327,8 @@ FILE* get_all_macros(FILE* curr_read, FILE* curr_write, int argc, char** argv)
                         }
                         free(macro_name);
                     }
-                    else
+                    else/*illegal macro name*/
                     {
-                        add_error("ERR: mcro name is operation name(invalid name)", count_line);
                         fclose(curr_write);/*close write file*/
                         fclose(curr_read);/*close read file*/
                         continue;

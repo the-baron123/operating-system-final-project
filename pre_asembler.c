@@ -25,8 +25,10 @@ int main(int argc, char* argv[])
     if(all_err != NULL)
     {
         print_err();
+        fprintf(stdout, "***** the output file that the \"pre asembler\" make is only on the files that has no macro error in them! *****");
         return 1;
     }
+
     return 0;
 }
 
@@ -35,9 +37,9 @@ void print_err()
 {
     while(all_err->next != NULL)
     {
-        fprintf(stderr, "%s %d\n", all_err->name_err, all_err->line);
+        fprintf(stderr, "%s \033[1;31m in line\033[0m %d\n", all_err->name_err, all_err->line);
         all_err = all_err->next;
     }
-    fprintf(stderr, "%s %d\n", all_err->name_err, all_err->line);
+    fprintf(stderr, "%s \033[1;31m in line\033[0m %d\n", all_err->name_err, all_err->line);
 }
 
