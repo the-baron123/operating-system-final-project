@@ -8,7 +8,7 @@
 
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 
-#define MAX_IN_LINE 82 /*80 letters + '\n' + '\0' = 82*/
+#define MAX_IN_LINE 81 /*80 letters + '\n' + '\0' = 82*/
 
 /*from here we will print all of ours errors and if there are none we will */
 typedef struct errors
@@ -17,8 +17,8 @@ typedef struct errors
     int line;
     struct errors* next;
 } errors;
-
-errors* all_err;
+/*collect errors for the pre asembler phase*/
+errors* pre_err;
 /*the struct build for the linked list to save the macro names and their code*/
 typedef struct data
 {
@@ -36,14 +36,14 @@ void add_error(const char* err_msg, int line, char* name_file) {
     /* Allocate memory for new error node */
     new_err = (errors*)malloc(sizeof(errors));
     if (new_err == NULL) {
-        fprintf(stderr, "Error: failed to allocate memory for error struct\n");
+        fprintf(stdout, "Error: failed to allocate memory for error struct\n");
         exit(1);
     }
 
     /* Allocate memory for the error message */
     new_err->name_err = (char*)malloc(strlen(err_msg)+strlen(name_file) + 1); /*+1 for '\0'*/
     if (new_err->name_err == NULL) {
-        fprintf(stderr, "Error: failed to allocate memory for error message\n");
+        fprintf(stdout, "Error: failed to allocate memory for error message\n");
         free(new_err);
         exit(1);
     }
@@ -60,13 +60,13 @@ void add_error(const char* err_msg, int line, char* name_file) {
     new_err->next = NULL;
 
     /* Insert into the linked list */
-    if (all_err == NULL)
+    if (pre_err == NULL)
     {
-        all_err = new_err;
+        pre_err = new_err;
     }
     else
     {
-        errors* temp = all_err;
+        errors* temp = pre_err;
         while (temp->next != NULL)
         {
             temp = temp->next;
@@ -80,13 +80,13 @@ void add_error(const char* err_msg, int line, char* name_file) {
 data* create_node(const char* name, const char* code) {
     data* new_node = (data*)malloc(sizeof(data));
     if (new_node == NULL) {
-        fprintf(stderr, "Memory allocation failed for node\n");
+        fprintf(stdout, "Memory allocation failed for node\n");
         exit(1);
     }
 
     new_node->name = (char*)malloc(strlen(name) + 1);
     if (new_node->name == NULL) {
-        fprintf(stderr, "Memory allocation failed for name\n");
+        fprintf(stdout, "Memory allocation failed for name\n");
         free(new_node);
         exit(1);
     }
@@ -94,7 +94,7 @@ data* create_node(const char* name, const char* code) {
 
     new_node->code = (char*)malloc(strlen(code) + 1);
     if (new_node->code == NULL) {
-        fprintf(stderr, "Memory allocation failed for code\n");
+        fprintf(stdout, "Memory allocation failed for code\n");
         free(new_node->name);
         free(new_node);
         exit(1);
@@ -207,7 +207,7 @@ char* get_macro_code(FILE* asm_file)
     {
         if(fgets(buffer, MAX_IN_LINE, asm_file) == NULL)
         {
-            fprintf(stderr, "ERR: macro did not end or fgets() failed");
+            fprintf(stdout, "ERR: macro did not end or fgets() failed");
             return NULL;
         }
 
@@ -222,7 +222,7 @@ char* get_macro_code(FILE* asm_file)
     macro_code = (char*)malloc(count_letters*sizeof(char)+1);
     if (!macro_code)
     {
-        fprintf(stderr, "Error: failed to allocate the memory\n");
+        fprintf(stdout, "Error: failed to allocate the memory\n");
         exit(1);
     }
     macro_code[0] = '\0';
@@ -230,17 +230,15 @@ char* get_macro_code(FILE* asm_file)
     buffer[0] = '\0';
     while(strcmp(buffer, end) != 0)
     {
-        if(fgets(buffer, 83, asm_file) == NULL)
+        if(fgets(buffer, MAX_IN_LINE, asm_file) == NULL)
         {
-            fprintf(stderr, "ERR: macro did not end or fgets() failed");
+            fprintf(stdout, "ERR: macro did not end or fgets() failed");
             return NULL;
         }
 
-        buffer[strcspn(buffer, "\n")] = '\0';/*remove first \n*/
         if(buffer[0] != ';' && strcmp(buffer, end) != 0)
         {
             strcat(macro_code, buffer);/*copy the line*/
-            strcat(macro_code, "\n");/*adds new line*/
         }
     }
     return macro_code;
@@ -254,7 +252,7 @@ FILE* get_all_macros(FILE* curr_read, FILE* curr_write, int argc, char** argv)
     FILE* res = fopen("pre.asm", "w");
     if (res == NULL)
     {
-        fprintf(stderr, "Failed to open pre.asm for writing");
+        fprintf(stdout, "Failed to open pre.asm for writing");
         return NULL;
     }
     buffer[0] = '\0';/*setting the buffer*/
@@ -263,12 +261,12 @@ FILE* get_all_macros(FILE* curr_read, FILE* curr_write, int argc, char** argv)
         count_line = 0;
         curr_write = fopen("temp.asm", "w");/*opening the writing file(for the current file)*/
         if (curr_write == NULL) {
-            fprintf(stderr, "Error opening output file");
+            fprintf(stdout, "Error opening output file");
             return NULL;
         }
         curr_read = fopen(argv[num_file], "r");/*opening the source file*/
         if (curr_read == NULL) {
-            fprintf(stderr, "Error opening output file");
+            fprintf(stdout, "Error opening output file");
             return NULL;
         }
 
@@ -311,7 +309,7 @@ FILE* get_all_macros(FILE* curr_read, FILE* curr_write, int argc, char** argv)
                         macro_name = (char*)malloc(strlen(word)*sizeof(char)+1);/*allocate memory*/
                         if(macro_name == NULL)
                         {
-                            fprintf(stderr, "ERR: memory allocate failed");
+                            fprintf(stdout, "ERR: memory allocate failed");
                             return NULL;
                         }
                         strcpy(macro_name, word);/*copying the name of macro to macro_name*/
@@ -350,7 +348,7 @@ FILE* get_all_macros(FILE* curr_read, FILE* curr_write, int argc, char** argv)
         curr_write = fopen("temp.asm", "r");/*open it as read file*/
         if (!curr_write)
         {
-            fprintf(stderr, "ERR: failed to reopen temp.asm for reading\n");
+            fprintf(stdout, "ERR: failed to reopen temp.asm for reading\n");
             return NULL;
         }
         copy_file(curr_write, res);/*copping the file*/

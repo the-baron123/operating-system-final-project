@@ -1,7 +1,7 @@
 /* read_macro.h - Header file for macro and error linked list handling */
 
-#ifndef READ_MACRO_H
-#define READ_MACRO_H
+#ifndef PRE_ASEMBLER_H
+#define PRE_ASEMBLER_H
 
 #include <stdio.h>
 #include <string.h>
@@ -49,4 +49,4 @@ char* get_macro_code(FILE* asm_file);
 /*getting all macros from all of the file*/
 FILE* get_all_macros(FILE* curr_read, FILE* curr_write, int argc, char** argv);
 
-#endif /* READ_MACRO_H */
+#endif /* PRE_ASEMBLER_H */
