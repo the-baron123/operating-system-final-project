@@ -181,10 +181,10 @@ void copy_file(FILE* source, FILE* dest)
 int macro_name_valid(char* word, int line, int argc, char** argv)
 {
     /*creating an array of all the operation in the language*/
-    char *oparations[] = {"mov\n", "cmp\n", "add\n", "sub\n", "not\n", "clr\n", "lea\n", "inc\n", "dec\n", "jmp\n", "bne\n", "red\n", "prn\n", "jsr\n", "rts\n", "stop\n"};
+    char *oparations[] = {"data\n",".data\n","string\n",".string\n","mat\n",".mat\n","mov\n", "cmp\n", "add\n", "sub\n", "not\n", "clr\n", "lea\n", "inc\n", "dec\n", "jmp\n", "bne\n", "red\n", "prn\n", "jsr\n", "rts\n", "stop\n"};
     int i = 0;
 
-    for(i = 0; i < 16;i++)
+    for(i = 0; i < 22;i++)
     {
         if(strcmp(word, oparations[i]) == 0)
         {
