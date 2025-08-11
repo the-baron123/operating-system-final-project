@@ -13,7 +13,7 @@ int main(int argc, char* argv[])
     }
 
     file_asm = get_all_macros(NULL, NULL, argc, argv);
-    if (remove("temp.asm") == 0) /*remove write file that opened before*/
+    if (remove("temp.am") == 0) /*remove write file that opened before*/
     {
         printf("File deleted successfully\n");
     }
@@ -30,7 +30,8 @@ int main(int argc, char* argv[])
     }
 
     /*end of pre asembler and the start of phase 1*/
-    file_asm = fopen("pre.asm", "r");
+    strcat(argv[1], ".am");
+    file_asm = fopen(argv[1], "r");
     /*start reading the file*/
 
     return 0;

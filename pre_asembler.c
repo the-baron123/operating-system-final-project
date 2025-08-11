@@ -10,6 +10,9 @@
 
 #define MAX_IN_LINE 81 /*80 letters + '\n' + '\0' = 82*/
 
+#define AM_EXTENSION ".am"
+#define AS_EXTENSION ".as"
+
 /*from here we will print all of ours errors and if there are none we will */
 typedef struct errors
 {
@@ -181,9 +184,23 @@ void copy_file(FILE* source, FILE* dest)
 int macro_name_valid(char* word, int line, int argc, char** argv)
 {
     /*creating an array of all the operation in the language*/
-    char *oparations[] = {"data\n",".data\n","string\n",".string\n","mat\n",".mat\n","mov\n", "cmp\n", "add\n", "sub\n", "not\n", "clr\n", "lea\n", "inc\n", "dec\n", "jmp\n", "bne\n", "red\n", "prn\n", "jsr\n", "rts\n", "stop\n"};
+    char* oparations[] = {"data\n",".data\n","string\n",".string\n","mat\n",".mat\n","mov\n", "cmp\n", "add\n", "sub\n", "not\n", "clr\n", "lea\n", "inc\n", "dec\n", "jmp\n", "bne\n", "red\n", "prn\n", "jsr\n", "rts\n", "stop\n"};
+    char* save_word = word;
     int i = 0;
 
+    if(isdigit(*save_word))/*checking first letter*/
+    {
+        add_error("ERR: mcro cannot start with a number(invalid name) in file name: ", line, argv[argc]);
+        return 0;
+    }
+    /*going over the string to search for illegal char in name*/
+    while(*save_word != '\0' && (isalpha(*save_word) || isdigit(*save_word))) save_word++;
+    if(!(isalpha(*save_word) || isdigit(*save_word)))
+    {
+        add_error("ERR: mcro name have illegal char in it(invalid name) in file name: ", line, argv[argc]);
+        return 0;
+    }
+    /*check if the name is not a saved word*/
     for(i = 0; i < 22;i++)
     {
         if(strcmp(word, oparations[i]) == 0)
@@ -247,27 +264,39 @@ char* get_macro_code(FILE* asm_file)
 
 FILE* get_all_macros(FILE* curr_read, FILE* curr_write, int argc, char** argv)
 {
-    char buffer[MAX_IN_LINE], *word, *macro_name, *macro_code, *save;
+    char buffer[MAX_IN_LINE], *curr_read_name, *word, *macro_name, *macro_code, *save;
     int check_name_validation = 0, count_line = 0, num_file = 1, len = 0;
-    FILE* res = fopen("pre.asm", "w");
+    char* res_name;
+    FILE* res;
+
+    res_name = (char*)malloc(strlen(argv[1])+4);/*name of the file +".am"+'\0'*/
+    if(!res_name)
+    {
+        fprintf(stdout, "ERR: memory allocate failed");
+        exit(1);
+    }
+    strcpy(res_name, argv[1]);
+    strcat(res_name, ".am");
+    res = fopen(res_name, "w");
     if (res == NULL)
     {
         fprintf(stdout, "Failed to open pre.asm for writing");
-        return NULL;
+        exit(1);
     }
     buffer[0] = '\0';/*setting the buffer*/
     for(num_file = 1; num_file < argc; num_file++)/*start reading the files and writing the files into in to file*/
     {
         count_line = 0;
-        curr_write = fopen("temp.asm", "w");/*opening the writing file(for the current file)*/
+        curr_write = fopen("temp.am", "w");/*opening the writing file(for the current file)*/
         if (curr_write == NULL) {
             fprintf(stdout, "Error opening output file");
-            return NULL;
+            exit(1);
         }
+        strcat(argv[num_file], ".as");
         curr_read = fopen(argv[num_file], "r");/*opening the source file*/
         if (curr_read == NULL) {
             fprintf(stdout, "Error opening output file");
-            return NULL;
+            exit(1);
         }
 
         while(fgets(buffer, MAX_IN_LINE, curr_read) != NULL)/*start getting all of the macros and code from the current files*/
@@ -310,7 +339,7 @@ FILE* get_all_macros(FILE* curr_read, FILE* curr_write, int argc, char** argv)
                         if(macro_name == NULL)
                         {
                             fprintf(stdout, "ERR: memory allocate failed");
-                            return NULL;
+                            exit(1);
                         }
                         strcpy(macro_name, word);/*copying the name of macro to macro_name*/
 
@@ -345,11 +374,11 @@ FILE* get_all_macros(FILE* curr_read, FILE* curr_write, int argc, char** argv)
         }
         fputc('\n', curr_write);
         fclose(curr_write);/*closing the file*/
-        curr_write = fopen("temp.asm", "r");/*open it as read file*/
+        curr_write = fopen("temp.am", "r");/*open it as read file*/
         if (!curr_write)
         {
             fprintf(stdout, "ERR: failed to reopen temp.asm for reading\n");
-            return NULL;
+            exit(1);
         }
         copy_file(curr_write, res);/*copping the file*/
         fclose(curr_read);/*close read file*/
