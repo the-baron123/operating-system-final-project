@@ -21,7 +21,7 @@ typedef struct errors
     struct errors* next;
 } errors;
 /*collect errors for the pre asembler phase*/
-errors* pre_err;
+errors* all_err;
 /*the struct build for the linked list to save the macro names and their code*/
 typedef struct data
 {
@@ -32,9 +32,25 @@ typedef struct data
 
 data* root = NULL;
 
+/*checks if char is printable(includes white chars*/
+int is_printable(unsigned char c)
+{
+    return isprint(c) || c == '\t' || c == '\n' || c == '\r' || c == ' ';
+}
 /*this function adds an errors to the errors list! and if the linked list dose not exist it create it*/
 void add_error(const char* err_msg, int line, char* name_file) {
     errors* new_err;
+    errors* temp = all_err;
+
+    /*checking id node exist*/
+    while (temp != NULL) {
+        if (temp->line == line)
+        {
+            /*if node on line exist do nothing*/
+            return;
+        }
+        temp = temp->next;
+    }
 
     /* Allocate memory for new error node */
     new_err = (errors*)malloc(sizeof(errors));
@@ -44,7 +60,7 @@ void add_error(const char* err_msg, int line, char* name_file) {
     }
 
     /* Allocate memory for the error message */
-    new_err->name_err = (char*)malloc(strlen(err_msg)+strlen(name_file) + 1); /*+1 for '\0'*/
+    new_err->name_err = (char*)malloc(strlen(err_msg) + strlen(name_file) + 1); /*+1 for '\0'*/
     if (new_err->name_err == NULL) {
         fprintf(stdout, "Error: failed to allocate memory for error message\n");
         free(new_err);
@@ -53,7 +69,6 @@ void add_error(const char* err_msg, int line, char* name_file) {
 
     /* Copy the message */
     strcpy(new_err->name_err, err_msg);
-    /*adding the file name*/
     strcat(new_err->name_err, name_file);
 
     /* Store line number */
@@ -63,21 +78,16 @@ void add_error(const char* err_msg, int line, char* name_file) {
     new_err->next = NULL;
 
     /* Insert into the linked list */
-    if (pre_err == NULL)
-    {
-        pre_err = new_err;
-    }
-    else
-    {
-        errors* temp = pre_err;
-        while (temp->next != NULL)
-        {
+    if (all_err == NULL) {
+        all_err = new_err;
+    } else {
+        temp = all_err;
+        while (temp->next != NULL) {
             temp = temp->next;
         }
         temp->next = new_err;
     }
 }
-
 
 /*creating a node*/
 data* create_node(const char* name, const char* code) {
@@ -123,7 +133,6 @@ void add_node(data** head, const char* name, const char* code) {
 
     temp->next = new_node;
 }
-
 /*searching method by name*/
 data* find_node(data* head, const char* name) {
     data* head1 = head;
@@ -134,7 +143,6 @@ data* find_node(data* head, const char* name) {
     }
     return NULL; /*did not found a match*/
 }
-
 /*copping source file to the destination file*/
 void copy_file(FILE* source, FILE* dest)
 {
@@ -194,10 +202,17 @@ int macro_name_valid(char* word, int line, int argc, char** argv)
         return 0;
     }
     /*going over the string to search for illegal char in name*/
-    while(*save_word != '\0' && (isalpha(*save_word) || isdigit(*save_word))) save_word++;
-    if(!(isalpha(*save_word) || isdigit(*save_word)))
+    while(*save_word != '\0' && is_printable(*save_word)) save_word++;
+    if(!is_printable(*save_word) && *save_word != '\0')
     {
+        fprintf(stdout,"%s",word);
         add_error("ERR: mcro name have illegal char in it(invalid name) in file name: ", line, argv[argc]);
+        return 0;
+    }
+    while(*save_word != '\0' && is_printable(*save_word)) save_word++;
+    if(*save_word != '\0')
+    {
+        add_error("ERR: mcro name have illegal char after it(invalid name) in file name: ", line, argv[argc]);
         return 0;
     }
     /*check if the name is not a saved word*/
@@ -215,28 +230,32 @@ int macro_name_valid(char* word, int line, int argc, char** argv)
 /*this function gets a position in an assembly file and gets its name and code and put it in the AVL tree*/
 char* get_macro_code(FILE* asm_file)
 {
-    char *macro_code, buffer[MAX_IN_LINE], end[] = "mcroend";
+    char *macro_code, buffer[MAX_IN_LINE];
+    const char end[] = "mcroend";
     unsigned int position = ftell(asm_file);
     int count_letters = 0;
 
     buffer[0] = '\0';
+
     while(strcmp(buffer, end) != 0)
     {
         if(fgets(buffer, MAX_IN_LINE, asm_file) == NULL)
         {
-            fprintf(stdout, "ERR: macro did not end or fgets() failed");
+            fprintf(stdout, "ERR: macro did not end or fgets() failed\n");
             return NULL;
         }
 
-        buffer[strcspn(buffer, "\n")] = '\0';
+        buffer[strcspn(buffer, "\r\n")] = '\0';
+
         if(buffer[0] != ';' && strcmp(buffer, end) != 0)
         {
-            count_letters += strlen(buffer);
+            count_letters += strlen(buffer) + 1;
         }
     }
+
     fseek(asm_file, position, SEEK_SET);
 
-    macro_code = (char*)malloc(count_letters*sizeof(char)+1);
+    macro_code = (char*)malloc(sizeof(count_letters + 1));
     if (!macro_code)
     {
         fprintf(stdout, "Error: failed to allocate the memory\n");
@@ -245,28 +264,34 @@ char* get_macro_code(FILE* asm_file)
     macro_code[0] = '\0';
 
     buffer[0] = '\0';
+
+
     while(strcmp(buffer, end) != 0)
     {
         if(fgets(buffer, MAX_IN_LINE, asm_file) == NULL)
         {
-            fprintf(stdout, "ERR: macro did not end or fgets() failed");
+            fprintf(stdout, "ERR: macro did not end or fgets() failed\n");
+            free(macro_code);
             return NULL;
         }
 
+        buffer[strcspn(buffer, "\r\n")] = '\0';
+
         if(buffer[0] != ';' && strcmp(buffer, end) != 0)
         {
-            strcat(macro_code, buffer);/*copy the line*/
+            strcat(macro_code, buffer);
+            strcat(macro_code, "\n");
         }
     }
+
     return macro_code;
 }
 
-
 FILE* get_all_macros(FILE* curr_read, FILE* curr_write, int argc, char** argv)
 {
-    char buffer[MAX_IN_LINE], *curr_read_name, *word, *macro_name, *macro_code, *save;
+    char buffer[MAX_IN_LINE+1], *word, *macro_name, *macro_code, *save;
     int check_name_validation = 0, count_line = 0, num_file = 1, len = 0;
-    char* res_name;
+    char* res_name, *curr_read_name;
     FILE* res;
 
     res_name = (char*)malloc(strlen(argv[1])+4);/*name of the file +".am"+'\0'*/
@@ -283,6 +308,7 @@ FILE* get_all_macros(FILE* curr_read, FILE* curr_write, int argc, char** argv)
         fprintf(stdout, "Failed to open pre.asm for writing");
         exit(1);
     }
+    free(res_name);
     buffer[0] = '\0';/*setting the buffer*/
     for(num_file = 1; num_file < argc; num_file++)/*start reading the files and writing the files into in to file*/
     {
@@ -292,13 +318,15 @@ FILE* get_all_macros(FILE* curr_read, FILE* curr_write, int argc, char** argv)
             fprintf(stdout, "Error opening output file");
             exit(1);
         }
-        strcat(argv[num_file], ".as");
-        curr_read = fopen(argv[num_file], "r");/*opening the source file*/
+        curr_read_name = (char*)malloc(sizeof(char)*(strlen(argv[num_file])+4));
+        strcpy(curr_read_name, argv[num_file]);
+        strcat(curr_read_name, ".as");
+        curr_read = fopen(curr_read_name, "r");/*opening the source file*/
         if (curr_read == NULL) {
             fprintf(stdout, "Error opening output file");
             exit(1);
         }
-
+        free(curr_read_name);
         while(fgets(buffer, MAX_IN_LINE, curr_read) != NULL)/*start getting all of the macros and code from the current files*/
         {
             len = strlen(buffer);
@@ -335,7 +363,7 @@ FILE* get_all_macros(FILE* curr_read, FILE* curr_write, int argc, char** argv)
                     check_name_validation = macro_name_valid(word, count_line, num_file, argv);/*check if mcro name is valid*/
                     if(check_name_validation == 1)
                     {
-                        macro_name = (char*)malloc(strlen(word)*sizeof(char)+1);/*allocate memory*/
+                        macro_name = (char*)malloc((strlen(word)+1)*sizeof(char));/*allocate memory*/
                         if(macro_name == NULL)
                         {
                             fprintf(stdout, "ERR: memory allocate failed");
@@ -344,7 +372,7 @@ FILE* get_all_macros(FILE* curr_read, FILE* curr_write, int argc, char** argv)
                         strcpy(macro_name, word);/*copying the name of macro to macro_name*/
 
                         macro_code = get_macro_code(curr_read);/*getting the code of the macro*/
-                        if(root == NULL)/*if our tree of macros is empty*/
+                        if(root == NULL)/*if our list of macros is empty*/
                         {
                             root = create_node(macro_name, macro_code);
                         }

@@ -2,6 +2,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <stdlib.h>
+#include "pre_asembler.h"
 
 #define MAX_LABEL_LEN 29
 #define WORD_LEN 10
@@ -11,6 +12,10 @@
 #define END_DEST_REGISTER 5
 #define START_SOURCE_REGISTER 6
 #define END_SOURCE_REGISTER 9
+#define MAX_BITS 10
+#define PHASE_1 1
+#define PHASE_2 2
+#define START_COUNT 100
 
 typedef struct mat
 {
@@ -49,21 +54,209 @@ typedef struct dc
     int addres;
     struct dc* next;
 }dc_code;
-
-/*searching mat function*/
-labels* find_label(labels* head, const char* target_name)
+/*the output structure of the first phase*/
+typedef struct state
 {
+    int dc_count;
+    int ic_count;
+    labels* label;
+    dc_code* data_code;
+}state;
+
+/* converting a number into a base-4 string with "bits" bits*/
+char* base_four(int number, int bits)
+{
+    char *base_ch, ch;
+    int two_bits, index, shift;
+
+    base_ch = (char*)malloc(sizeof(char) * (bits + 1)); /* +1 for '\0' */
+    if (!base_ch)
+    {
+        fprintf(stdout, "memory allocation failed");
+        exit(1);
+    }
+
+    for (index = 0; index < bits; index++)
+    {
+        shift = 2 * (bits - index - 1);
+        two_bits = (number >> shift) & 0x3;
+
+        switch (two_bits)
+        {
+        case 0: ch = 'a'; break;
+        case 1: ch = 'b'; break;
+        case 2: ch = 'c'; break;
+        case 3: ch = 'd'; break;
+        }
+        base_ch[index] = ch;
+    }
+
+    base_ch[bits] = '\0';
+    return base_ch;
+}
+
+/* converting a number into a base-4 string (a,b,c,d) without leading 'a's */
+char* base_four_no_bit(int number)
+{
+    char *base_ch, ch;
+    int two_bits, index, shift, start, len;
+
+    base_ch = (char*)malloc(sizeof(char) * 5);
+    if(!base_ch)
+    {
+        fprintf(stdout, "memory allocation failed");
+        exit(1);
+    }
+
+    start = -1;
+
+    for(index = 0; index < 4; index++)
+    {
+        shift = 2 * (3 - index);
+        two_bits = (number >> shift) & 0x3;
+
+        switch(two_bits)
+        {
+        case 0: ch = 'a'; break;
+        case 1: ch = 'b'; break;
+        case 2: ch = 'c'; break;
+        case 3: ch = 'd'; break;
+        }
+
+        if(ch != 'a' && start == -1)/*start counting the indexes*/
+        {
+            start = index;
+        }
+
+        base_ch[index] = ch;
+    }
+
+    if(start == -1)
+    {
+        base_ch[0] = 'a';
+        base_ch[1] = '\0';
+    }
+    else
+    {
+        len = 4 - start;
+        memmove(base_ch, base_ch + start, len);
+        base_ch[len] = '\0';
+    }
+
+    return base_ch;
+}
+
+/*freeing labels memory */
+void free_labels_list(labels** head_ref)
+{
+    labels* current = *head_ref;
+    labels* temp;
+
+    while (current != NULL)
+    {
+        temp = current->next;
+
+        free(current->label_name);
+        free(current->type);
+
+        free(current);
+        current = temp;
+    }
+    *head_ref = NULL;
+}
+/*freeing dc memory */
+void free_dc_list(dc_code** head_ref)
+{
+    dc_code* current = *head_ref;
+    dc_code* temp;
+
+    while (current != NULL)
+    {
+        temp = current->next;
+        free(current);
+        current = temp;
+    }
+    *head_ref = NULL;
+}
+/*free mat memory*/
+void free_mat_list(mat** head_ref)
+{
+    int i;
+    mat* current = *head_ref;
+    mat* temp;
+
+    while (current != NULL)
+    {
+        temp = current->next;
+
+        if (current->nums)
+        {
+            for (i = 0; i < current->row; i++)
+            {
+                free(current->nums[i]);
+            }
+            free(current->nums);
+        }
+
+        free(current);
+        current = temp;
+    }
+    *head_ref = NULL;
+}
+/*free binary memory*/
+void free_binary_list(binary** head_ref)
+{
+    binary* current = *head_ref;
+    binary* temp;
+
+    while (current != NULL)
+    {
+        temp = current->next;
+        free(current);
+        current = temp;
+    }
+    *head_ref = NULL;
+}
+/*free ic memory*/
+void free_ic_list(ic_code** head_ref)
+{
+    ic_code* current = *head_ref;
+    ic_code* temp;
+
+    while (current != NULL)
+    {
+        temp = current->next;
+        free(current);
+        current = temp;
+    }
+    *head_ref = NULL;
+}
+/*searching mat function*/
+labels* find_label(labels* head, char* target_name)
+{
+    char buffer[MAX_LABEL_LEN+1], *find;
+
+    while(isspace(*target_name)) target_name++;
+    strcpy(buffer, target_name);
+    buffer[sizeof(buffer)-1] = '\0';
+    find = buffer;
+    find = strchr(buffer, '\n');
+    if(find) *find = '\0';
+
     while (head != NULL)
     {
-        if (strcmp(head->label_name, target_name) == 0)
+        if(head->label_name != NULL)
         {
-            return head;
+            if(strcmp(head->label_name, buffer) == 0)
+            {
+                return head;
+            }
         }
         head = head->next;
     }
+
     return NULL;
 }
-
 /*this function enters bits to limited area*/
 void insert_bits(short* word, int start_bit, int end_bit, int num_to_insert)
 {
@@ -76,6 +269,7 @@ void insert_bits(short* word, int start_bit, int end_bit, int num_to_insert)
 /*insert node into binary list*/
 binary* add_binary_node(binary** head, short word_value)
 {
+    binary* current;
     binary* new_node = (binary*)malloc(sizeof(binary));
     if (!new_node)
     {
@@ -85,14 +279,13 @@ binary* add_binary_node(binary** head, short word_value)
 
     new_node->word = word_value;
     new_node->next = NULL;
-
     if (*head == NULL)/*empty list*/
     {
         *head = new_node;
     }
     else
     {
-        binary* current = *head;
+        current = *head;
         while (current->next != NULL)
         {
             current = current->next;
@@ -102,28 +295,28 @@ binary* add_binary_node(binary** head, short word_value)
 
     return *head;
 }
-/*this function makes a binary code from an integer*/
-char* num_to_by_code(int num)
+/*insert node into binary list*/
+binary* add_binary_node_with_word(binary** head, binary* word)
 {
-    int i = 0, index = 0;
-    char* binary = (char*)malloc(11* sizeof(char));/*10 bits+'\0'*/
-    if (!binary) return NULL;
+    binary* current;
+    if (word == NULL) return *head;
 
-    if (num < 0)
+    if (*head == NULL) /*empty list*/
     {
-        num = ((1 << 10) + num);
+        *head = word;
+    }
+    else
+    {
+        current = *head;
+        while (current->next != NULL)
+        {
+            current = current->next;
+        }
+        current->next = word;
     }
 
-    for(int i = 9; i >= 0; i--)
-    {
-        binary[index] = ((num >> i) & 1)? '1' : '0';
-        index++;
-    }
-    binary[10] = '\0';
-
-    return binary;
-}
-/*this function insert new node into dc structure*/
+    return *head;
+}/*this function insert new node into dc structure*/
 int add_dc(dc_code** head, short dc, int address)
 {
     dc_code* new_node1, *temp1;
@@ -134,18 +327,18 @@ int add_dc(dc_code** head, short dc, int address)
         fprintf(stderr, "Memory allocation failed\n");
         exit(1);
     }
-    new_node1->code_value = num_to_by_code(dc);
+    new_node1->code_value = dc;
     new_node1->addres = address;
     new_node1->next = NULL;
     temp1 = *head;
 
     if (temp1 == NULL)/*empty list*/
     {
-        *(dc_code**)head = new_node1;
+        *head = new_node1;
     }
     else
     {
-        while (temp1->next != NULL)
+        while(temp1->next != NULL)
         {
             temp1 = temp1->next;
         }
@@ -157,7 +350,7 @@ int add_dc(dc_code** head, short dc, int address)
 /*this function insert new node into ic structure*/
 int add_ic(ic_code** head, short ic, int address)
 {
-    ic_code* new_node2, *temp2;
+    ic_code *new_node2, *temp2;
 
     new_node2 = (ic_code*)malloc(sizeof(ic_code));
     if (!new_node2)
@@ -165,44 +358,49 @@ int add_ic(ic_code** head, short ic, int address)
         fprintf(stderr, "Memory allocation failed\n");
         exit(1);
     }
-    new_node2->code_value = num_to_by_code(ic);
+
+    new_node2->code_value = ic;
     new_node2->addres = address;
     new_node2->next = NULL;
+
+    if (*head == NULL)
+    {
+        *head = new_node2;
+        return 1;
+    }
+
     temp2 = *head;
-    if (temp2 == NULL)/*empty list*/
+    while (temp2->next != NULL)
     {
-        *(ic_code**)head = new_node2;
+        temp2 = temp2->next;
     }
-    else
-    {
-        while (temp2->next != NULL)
-        {
-            temp2 = temp2->next;
-        }
-        temp2->next = new_node2;
-    }
+    temp2->next = new_node2;
 
     return 1;
 }
-
 /*this function insert a new label into the linked list*/
-int add_label(labels** head, unsigned short address, const char* name, const char* guiding_name)
+int add_label(labels** head, unsigned short address, const char* name, const char* guiding_name, int line, char* file_name)
 {
     labels* current = *head;
     labels* new_label;
-    /* checking if the label already existing*/
+
+    /*check if name exist*/
     while (current != NULL)
     {
-        if (strcmp(current->label_name, name) == 0)
+        if (current->label_name != NULL && strcmp(current->label_name, name) == 0)
         {
-            fprintf(stdout, "Error: Label \"%s\" already exists.\n", name);
+            if((strcmp(current->type, ".extern") == 0 ||strcmp(current->type, ".entry") == 0))
+            {
+                return 1;
+            }
+            add_error("Error: Label already exists. ", line, file_name);
             return 0;
         }
         current = current->next;
     }
 
-    /* creating new label*/
-    new_label = (labels*)malloc(sizeof(labels));
+    /*create new node*/
+    new_label = (labels*)calloc(1, sizeof(labels));
     if (!new_label)
     {
         fprintf(stderr, "Error: Memory allocation failed.\n");
@@ -211,7 +409,7 @@ int add_label(labels** head, unsigned short address, const char* name, const cha
 
     new_label->address = address;
 
-    new_label->label_name = (char*)malloc((strlen(name) + 1)* sizeof(char));
+    new_label->label_name = (char*)malloc(strlen(name) + 1);
     if (!new_label->label_name)
     {
         free(new_label);
@@ -220,7 +418,7 @@ int add_label(labels** head, unsigned short address, const char* name, const cha
     }
     strcpy(new_label->label_name, name);
 
-    new_label->type = (char*)malloc((strlen(guiding_name) + 1)* sizeof(char));
+    new_label->type = (char*)malloc(strlen(guiding_name) + 1);
     if (!new_label->type)
     {
         free(new_label->label_name);
@@ -230,19 +428,83 @@ int add_label(labels** head, unsigned short address, const char* name, const cha
     }
     strcpy(new_label->type, guiding_name);
 
+    /*adding to the list*/
     new_label->next = *head;
     *head = new_label;
 
     return 1; /*return "true"*/
 }
+/*gets a label and add it into the extern or entry files*/
+void check_extern(char* sy_name, labels* label_table, char* file_name, int IC)
+{
+    FILE* ent = NULL, *ext = NULL;
+    char* p_ent_name, *save;
+    labels* search_node;
+    search_node = find_label(label_table, sy_name);
+    if(!search_node)
+    {
+        return;
+    }
+    printf("label:%s:, type:%s:\n",sy_name, search_node->type);
+    if(strcmp(search_node->type, ".extern") == 0)
+    {
+        if(ext == NULL)
+        {
+            p_ent_name = file_name;
+            save = p_ent_name;
+            while(*save != '.') save++;
+            *save = '\0';
+            ext = fopen(strcat(p_ent_name, ".ext"), "a");
+            if (!ext)
+            {
+                fprintf(stdout, "Failed to open file");
+                exit(1);
+            }
+        }
+        fputs(sy_name, ext);
+        fputs("   ", ext);
+        save = base_four(IC, 4);
+        fputs(save, ext);
+        free(save);
+        fputs("\n", ext);
+        return;
+    }
+    if(strcmp(search_node->type, "xentry") == 0 || strcmp(search_node->type, ".entry") == 0)
+    {
+        if(ent == NULL)
+        {
+            p_ent_name = file_name;
+            save = p_ent_name;
+            while(*save != '.') save++;
+            *save = '\0';
+            ent = fopen(strcat(p_ent_name, ".ent"), "a");
+            if (!ent)
+            {
+                fprintf(stdout, "Failed to open file");
+                exit(1);
+            }
+        }
+        fputs(sy_name, ent);
+        fputs("   ", ent);
+        save = base_four(IC, 4);
+        fputs(save, ent);
+        free(save);
+        fputs("\n", ent);
+        return;
+    }
+}
 /*
 this function checks if some operation is in the language and return it's binary value
 if the word does not exist return 0
 */
-int check_if_operation_in_language(const char* name, int line, char* file, char** operation_list)
+int check_if_operation_in_language(char* name, char** operation_list)
 {
     int i = 0;
-
+    char* endl = strchr(name, '\n');
+    if(endl)
+    {
+        *endl = '\0';
+    }
     for(i = 0; i<16; i++)
     {
         if(strcmp(name, operation_list[i]) == 0)
@@ -253,57 +515,83 @@ int check_if_operation_in_language(const char* name, int line, char* file, char*
     return -1;
 }
 /*checks label name validation according to the task*/
-int check_label_validation(char* name, int line, char* file, labels* sy_tabel)
+int check_label_validation(char* start, char* end, int line, char* file, labels* sy_tabel, int phase)
 {
     /*creating an array of all the operation in the language*/
+    int i;
     char *operation_list[] = {"mov", "cmp", "add", "sub", "not", "clr", "lea", "inc", "dec", "jmp", "bne", "red", "prn", "jsr", "rts", "stop"};
-    char* save;
-    while(isspace(*name)) name++;
-    name = strtok(name, ":");
-    if(!isalpha(*name))
+    labels* search = NULL;
+    char* save, *name = (char*)malloc(sizeof(char)*(end-start+1));
+    if(!name)
     {
-        fprintf(stdout, "invalid label name(first letter is not an alphabet char) (line %d) in file %s\n", line, file);
+        fprintf(stdout,"memory allocation error");
+        exit(1);
+    }
+    while(*start != '\0' && isspace(*start)) start++;
+    if(!isalpha(*start))
+    {
+        free(name);
+        add_error("invalid label name(first letter is not an alphabet char) ", line, file);
         return 0;
     }
-    if(strlen(name) > MAX_LABEL_LEN)
+    if(end - start > MAX_LABEL_LEN)
     {
-        fprintf(stdout, "label name is too long. (line %d) in file %s\n", line, file);
+        free(name);
+        add_error("label name is too long ", line, file);
         return 0;
     }
-    save = name;
-    while (*save != '\0')
+    save = start;
+    while (*save != '\0')/*found spaces if there are some and report it*/
     {
         if (isspace(*save))
         {
-            fprintf(stdout, "label name has illegal spaces in it. (line %d) in file %s\n", line, file);
+            free(name);
+            add_error("label name has illegal spaces in it ", line, file);
             return 0;
         }
         if(!isdigit(*save) && !isalpha(*save))
         {
-            fprintf(stdout, "label name has illegal char in it. (line %d) in file %s\n", line, file);
+            free(name);
+            add_error("label name has illegal char in it ", line, file);
             return 0;
         }
         save++;
-    }/*found spaces if there are some and report it*/
-    if(find_label(name) != NULL)
+    }
+    for(i = 0;i<end- start;i++)
     {
-        fprintf(stdout, "label is already exist. (line %d) in file %s\n", line, file);
+        name[i] = *start;
+    }
+    name[i] = '\0';
+    if((search = find_label(sy_tabel, name)) != NULL && strcmp(search->type, ".entry") != 0)
+    {
+        save = search->type;
+        *save = 'x';
+        free(name);
+        return 1;
+    }
+    if((search = find_label(sy_tabel, name)) != NULL && phase == PHASE_1)
+    {
+        free(name);
+        add_error("label is already exist ", line, file);
         return 0;
     }
-    if(find_node(sy_tabel, name) != NULL)
+    if(find_node(root, name) != NULL)/*searching for a macro*/
     {
-        fprintf(stdout, "label name is mcro name. (line %d) in file %s\n", line, file);
+        free(name);
+        add_error("label name is mcro name ", line, file);
         return 0;
     }
-    if(check_if_operation_in_language(name, line, file, operation_list))
+    if(check_if_operation_in_language(name,operation_list) != -1)
     {
-        fprintf(stdout, "label name is operation name. (line %d) in file %s\n", line, file);
+        free(name);
+        add_error("label name is operation name ", line, file);
         return 0;
     }
+    free(name);
     return 1;/*true*/
 }
 /*function to add a node into the mat linked list*/
-int add_mat(mat** head, mat* node_add, int line, char* file)
+int add_mat(mat** head, mat* node_add)
 {
     mat* current;
 
@@ -332,39 +620,104 @@ int add_mat(mat** head, mat* node_add, int line, char* file)
     return 1;/*returning head of the list*/
 }
 /*gets a string that should be a number(or just regular string and convert it back into a number*/
-int get_num(char* num, int line, char* name)
+int get_last_num(char* num, int line, char* name)
 {
     char* save;
-    int number = 0;
+    int number = 0, sign = 1;
 
-    while(isspace(*num)) num++;/*removing white chars*/
-    num = strtok(num, " ");/*getting the number*/
-    save = num;
-    while(!isspace(*save) && *save != ',' && *save != '\n')/*searching for illegal chars in number*/
+    while((*num != '\0') && isspace(*num)) num++;/*removing white chars*/
+    if(*num == '\0')
     {
+        add_error("missing number ",line, name);
+        return 1 << 11;
+    }
+    save = num;
+    while(!isspace(*save) && *save != '\0')/*searching for illegal chars in number*/
+    {
+        if(sign == 1 && (*save == '-' || *save == '+'))
+        {
+            sign = 0;
+            save++;
+            continue;
+        }
+        else if(sign == 0 && (*save == '-' || *save == '+'))
+        {
+            add_error("illegal text in number first ",line, name);
+            return 1 << 11;
+        }
         if(!isdigit(*save) && *save != '-' && *save != '+')
         {
-            fprintf(stdout, "illegal text in number (line %d) in file %s.\n",line, name);
+            add_error("illegal text in number ",line, name);
             return 1 << 11;
         }
         save++;
     }
-    if(*save != ',' && strtok(NULL, ",") == NULL)/*searching for illegal chars after num*/
+
+    while(*save != '\0')/*searching for illegal chars after number*/
     {
-        while(*save != '\0')
+        if(!isspace(*save))
         {
-            if(!isspace(*save) && *save != '\n')
-            {
-                fprintf(stdout, "missing comma\illegal char after number (line %d) in file %s.\n",line, name);
-                return 1 << 11;
-            }
-            save++;
+            add_error("illegal char after number ",line, name);
+            return 1 << 11;
         }
+        save++;
     }
     number = atoi(num);/*getting the number with atoi*/
     if(number > 1 << 8)
     {
-        fprintf(stdout, "number is too big (line %d) in file %s.\n",line, name);
+        add_error("number is too big ",line, name);
+        return 1 << 11;
+    }
+    return number;
+}
+/*start contains */
+int get_num(char* start, char* end, int line, char* name)
+{
+    char* save;
+    int number = 0, sign = 1;
+
+    end--;
+    while(start > end && isspace(*start)) start++;/*removing white chars*/
+    if(start > end)
+    {
+        add_error("missing number ",line, name);
+        return 1 << 11;
+    }
+    save = start;
+    while(!isspace(*save) && end > save)/*searching for illegal chars in number*/
+    {
+        if(sign == 1 && (*save == '-' || *save == '+'))
+        {
+            sign = 0;
+            save ++;
+            continue;
+        }
+        else if( sign == 0 && (*save == '-' || *save == '+'))
+        {
+            add_error("illegal text in number first ",line, name);
+            return 1 << 11;
+        }
+        if(!isdigit(*save) && *save != '-' && *save != '+' && *save != ',')
+        {
+            add_error("illegal text in number ",line, name);
+            return 1 << 11;
+        }
+        save++;
+    }
+
+    while(end > save)/*searching for illegal chars after number*/
+    {
+        if(!isspace(*save) && *save != '\n')
+        {
+            add_error("illegal char after number ",line, name);
+            return 1 << 11;
+        }
+        save++;
+    }
+    number = atoi(start);/*getting the number with atoi*/
+    if(number > (1 << 10) || number*-1 > (1 << 10))
+    {
+        add_error("number is too big ",line, name);
         return 1 << 11;
     }
     return number;
@@ -373,44 +726,26 @@ int get_num(char* num, int line, char* name)
 this function gets a string and convert it into an array of integers
 that each index in it is the binary value of the char in the index space on the string
 */
-int* get_str(char* str, int line, char* name)
+int* get_str(char* start, char* end_str, int line, char* name)
 {
     int *res, *p_res;
 
-    while(isspace(*str)) str++;/*skipping all white chars from the start just to be sure*/
-    if(*str != '"')
-    {
-        fprintf(stdout, "string missing \" (line %d) in file %s\n", line, name);
-        return NULL;
-    }
-    str = strtok(str, "\"");/*getting the string*/
-    if(str == NULL)
-    {
-        fprintf(stdout, "string missing \" (line %d) in file %s\n", line, name);
-        return NULL;
-    }
-    res = (int*)malloc((strlen(str)+1)* sizeof(int));/*allocating memory for string length + '\0'*/
+    res = (int*)malloc(((end_str-start)+1)* sizeof(int));/*allocating memory for string length + '\0'*/
     p_res = res;/*setting a pointer that I can move without worrying to lose my position */
-    while(*str != '\0')
+    while(start != end_str)
     {
-        if(!isprint(*str))/*checking if the char is printable*/
+        if(!isprint(*start) && !isspace(*start))/*checking if the char is printable*/
         {
             free(res);
-            fprintf(stdout, "string contains a non printable char (line %d) in file %s\n", line, name);
+            add_error("string contains a non printable char", line, name);
             return NULL;
         }
         /*setting the array*/
-        *p_res = (int)*str;
+        *p_res = (int)*start;
         p_res++;
-        str++;
+        start++;
     }
     *p_res = 0;
-    if(strtok(str, " \n") != NULL)
-    {
-        free(res);
-        fprintf(stdout, "illegal char after string(should be no chars at all or only white char) (line %d) in file %s\n", line, name);
-        return NULL;
-    }
     return res;
 }
 /*this function gets the first integer from the start of the word*/
@@ -422,77 +757,89 @@ int get_integer_mat(char* mat, int line, char* name)
     while(isspace(*mat) && *mat != '\0') mat++;/*ignoring white chars*/
     if(*mat == '\0')
     {
-        fprintf(stdout, "missing parameters (line %d), in file %s\n", line, name);
+        add_error("missing parameters", line, name);
         return res;
     }
-    if(*mat == ']')
+    if(*mat != '[')
     {
-        fprintf(stdout, "missing integer (line %d), in file %s\n", line, name);
+        add_error("missing '[' ", line, name);
+        return res;
+    }
+    mat++;
+    while(*mat != '\0' && isspace(*mat)) mat++;
+    if(*mat == '\0')
+    {
+        add_error("missing number ", line, name);
         return res;
     }
     if(!isdigit(*mat))
     {
-        fprintf(stdout, "illegal char(should be an integer) (line %d), in file %s\n", line, name);
+        add_error("illegal char(should be an integer) ", line, name);
         return res;
     }
     /*getting the number*/
     save = mat;
-    while(isdigit(*save))
+    while(isdigit(*save))/*counting the number digits*/
     {
         count_num++;
         save++;
     }
     if(*save == '\0')
     {
-        fprintf(stdout, "missing parameters (line %d), in file %s\n", line, name);
+        add_error("missing parameters", line, name);
         return res;
     }
     if(isalpha(*save))
     {
-        fprintf(stdout, "illegal char (line %d), in file %s\n", line, name);
+        add_error("illegal char", line, name);
         return res;
     }
+    if(isspace(*save))
+    {
+        while(*save != '\0' && *save != ']')
+        {
+            save++;
+        }
+        if(*save == '\0')
+        {
+            add_error("missing ']' ", line, name);
+            return res;
+        }
+    }
+    if(*save != ']')
+    {
+        add_error("missing ']' ", line, name);
+        return res;
+    }
+
     integer = (char*)malloc((count_num+1)* sizeof(char));
     if(integer == NULL)
     {
-        fprintf(stdout, "allocating memory error\n", line, name);
+        add_error("allocating memory error", line, name);
         exit(1);
     }
-    while(isdigit(*mat))
+    save = integer;
+    while(isdigit(*mat))/*copping the number*/
     {
-        *integer = *mat;
-        integer++;
+        *save = *mat;
+        save++;
         mat++;
     }
+    *save = '\0';
     res = atoi(integer);
 
-    while(isspace(*mat)) mat++;
-    if(*mat == ']')
-    {
-        return res;/*returning the number*/
-    }
-    if(*save == '\0')
-    {
-        fprintf(stdout, "missing parameters (line %d), in file %s\n", line, name);
-        return -1;
-    }
-    if(isalpha(*save))
-    {
-        fprintf(stdout, "illegal char (line %d), in file %s\n", line, name);
-        return -1;
-    }
-    fprintf(stdout, "missing parameters\illegal char (line %d), in file %s\n", line, name);
-    return -1;
+    free(integer);
+    return res;
 }
 /*
 this function gets a string that should be a define of a matrix
 and gets the matrix and it's values
  */
-mat* get_mat(char* mat_info, int line, char* name)
+mat* get_mat(char* mat_info, int line, char* name, int empty_mat)
 {
     mat* new_mat;
-    char* save, *mat_name;
-    int count_mat = 0, row = 0, colom = 0, **nums, i, j, integer;
+    char *start, *end;
+    int row = 0, colom = 0, **nums, i, j, integer;
 
     new_mat = (mat*)malloc(sizeof(mat));
     if (new_mat == NULL)
@@ -500,9 +847,12 @@ mat* get_mat(char* mat_info, int line, char* name)
         fprintf(stdout, "memory allocation error.\n");
         exit(1);
     }
+    new_mat->next = NULL;
+    new_mat->nums = NULL;
     if(isspace(*mat_info))
     {
-        fprintf(stdout, "illegal white char (line %d), in file %s\n", line, name);
+        free_mat_list(&new_mat);
+        add_error("illegal white char ", line, name);
         return NULL;
     }
     /*getting the size of the matrix*/
@@ -510,44 +860,53 @@ mat* get_mat(char* mat_info, int line, char* name)
     if(row == -1)
     {
         /*the error were print in the function*/
-        free(mat_name);
+        free_mat_list(&new_mat);
         return NULL;
     }
-    while(*mat_info != ']')/*we checked in the function that that char exist*/
-    {
-        mat_info++;
-    }
-    mat_info++;
+    mat_info = strchr(mat_info, ']');/*we checked in "get_number_mat" function that it exist*/
+    mat_info++;/*if it all good it should be point to '['*/
+
     if(*mat_info == '\0')
     {
-        fprintf(stdout, "missing parameters (line %d), in file %s\n", line, name);
-        free(mat_name);
+        add_error("missing parameters ", line, name);
+        free_mat_list(&new_mat);
         return NULL;
     }
-    if(isspace(*save))
+    if(isspace(*mat_info))
     {
-        fprintf(stdout, "illegal white char (line %d), in file %s\n", line, name);
-        free(mat_name);
+        add_error("illegal white char ", line, name);
+        free_mat_list(&new_mat);
         return NULL;
     }
-    if(*save != '[')
+    if(*mat_info != '[')
     {
-        fprintf(stdout, "illegal char after mat name(line %d), in file %s\n", line, name);
-        free(mat_name);
+        add_error("illegal char after mat name ", line, name);
+        free_mat_list(&new_mat);
         return NULL;
     }
+
     colom = get_integer_mat(mat_info, line, name);
     if(colom == -1)
     {
         /*the error were print in the function*/
-        free(mat_name);
+        free_mat_list(&new_mat);
         return NULL;
     }
+    /*searching for space after second ']'*/
+    mat_info = strchr(mat_info, ']');
+    mat_info++;
+    if(!isspace(*mat_info))
+    {
+        add_error("missing space ",line, name);
+        free_mat_list(&new_mat);
+        return NULL;
+    }
+
     /*allocating memory for the array and setting it for 0*/
     nums = (int**)malloc(row* sizeof(int*));
     if (nums == NULL) {
         fprintf(stdout, "Memory allocation failed for rows.\n");
-        free(mat_name);
+        free_mat_list(&new_mat);
         exit(1);
     }
     for(i = 0;i<row;i++)
@@ -559,18 +918,27 @@ mat* get_mat(char* mat_info, int line, char* name)
             {
                 free(nums[j]);
             }
-            free(mat_name);
+            free_mat_list(&new_mat);
             exit(1);
         }
+    }
+    start = mat_info;
+    end = strchr(mat_info, ',');
+    if(empty_mat == 1)
+    {
+        new_mat->nums = nums;
+        new_mat->colom = colom;
+        new_mat->row = row;
+        return new_mat;
     }
     /*getting the numbers of the mat*/
     for(i = 0;i<row;i++)
     {
         for(j = 0;j<colom;j++)
         {
-            if((save = strtok(mat_info, ",")) != NULL)
+            if(end != NULL)
             {
-                integer = get_num(mat_info, line, name);
+                integer = get_num(start, end, line, name);
                 if(integer == 1 << 11)
                 {
                     for(i = 0;i<row;i++)
@@ -578,7 +946,7 @@ mat* get_mat(char* mat_info, int line, char* name)
                         free(nums[i]);
                     }
                     free(nums);
-                    free(mat_name);
+                    free_mat_list(&new_mat);
                     return NULL;
                 }
                 else
@@ -588,7 +956,7 @@ mat* get_mat(char* mat_info, int line, char* name)
             }
             else
             {
-                integer = get_num(mat_info, line, name);
+                integer = get_last_num(start, line, name);
                 if(integer == 1 << 11)
                 {
                     for(i = 0;i<row;i++)
@@ -596,25 +964,28 @@ mat* get_mat(char* mat_info, int line, char* name)
                         free(nums[i]);
                     }
                     free(nums);
-                    free(mat_name);
+                    free_mat_list(&new_mat);
                     return NULL;
                 }
+                nums[i][j] = integer;
                 new_mat->nums = nums;
                 new_mat->colom = colom;
                 new_mat->row = row;
                 return new_mat;
             }
+            start = (end+1);
+            end = strchr(start, ',');
         }
     }
-    if(save != NULL)
+    if(end != NULL)/*if I got too much inputs*/
     {
-        fprintf(stdout, "to much inputs (line %d) in file %s.\n", line, name);
+        add_error("to much inputs ", line, name);
         for(i = 0;i<row;i++)
         {
             free(nums[i]);
         }
         free(nums);
-        free(mat_name);
+        free_mat_list(&new_mat);
         return NULL;
     }
     new_mat->nums = nums;
@@ -625,11 +996,12 @@ mat* get_mat(char* mat_info, int line, char* name)
 /*gets a string and checks if its a register and if it is return the number of the register*/
 short check_if_register(char* word, int line, char* file_name)
 {
-    short res;
+    short res = 0;
 
     while(*word != '\0' && isspace(*word)) word++;
     if(*word != 'r')
     {
+        add_error("register don't start with 'r'", line, file_name);
         return -1;
     }
     word++;
@@ -637,649 +1009,264 @@ short check_if_register(char* word, int line, char* file_name)
     {
         if((res = atoi(word)) > 7)
         {
+            add_error("register does not exist", line, file_name);
             return -1;
         }
         word++;
-        if(*word == '\0')
+        while(*word != '\0' && *word != ',')
+        {
+            if(isspace(*word))
+            {
+                word++;
+            }
+        }
+        if(*word == ',' || *word == '\0')
         {
             return res;
         }
     }
+    add_error("illegal char in register ", line, file_name);
     return -1;
 }
-/*this function gets a word in the language and convert it to it's binary value and return it*/
-/*source: 1,2,3 dest: 0,1,2,3*/
-binary* code_for_zero(char* word, int line, char* file_name, int opcode)
+
+int count_ic_on_word_zero(char* word, int line, char* file_name)
 {
-    char* save_word;
-    short by_word = 0, register_num;
-    labels* temp_label;
-    binary* res = (binary*)malloc(sizeof(binary));
-    if(!res)
-    {
-        fprintf(stdout, "memory allocation error.\n");
-        exit(1);
-    }
-    res->word = 0;
-
-    insert_bits(&res->word, START_OPCODE, END_OPCODE, opcode);
-
-    /*start getting the source*/
-    if((strtok(word," ") != NULL) && temp_label = find_label(labels_table, word))
-    {
-        by_word = 0;
-        insert_bits(&res->word, 4, 5, 1);
-        insert_bits(&by_word, 2, 10, temp_label->address);
-        insert_bits(&by_word, 0, 1, 2);
-        add_binary_node(&res, by_word);
-    }/*now checks if its a matrix*/
-    else if(strtok(word,"[") != NULL && (temp_label = find_label(labels_table, strtok(word,"["))) != NULL)
-    {
-        by_word = 0;
-        insert_bits(&res->word, 4, 5, 2);
-        insert_bits(&by_word, 2, 10, temp_label->address);
-        insert_bits(&by_word, 0, 1, 2);
-        add_binary_node(&res, by_word);
-        by_word = 0;
-        strtok(word, "]")
-        if(check_if_register(word, line, file_name) == -1)
-        {
-            fprintf(stdout, "undefined variable (line %d) in file %s.\n",line, file_name);
-            return NULL;
-        }
-        insert_bits(&by_word, 6, 9, check_if_register(word, line, file_name));
-        strtok(NULL, "[");
-        if(isspace(*word))
-        {
-            fprintf(stdout, "illegal space (line %d) in file %s.\n",line, file_name);
-            return NULL;
-        }
-        strtok(NULL,"]");
-        if(check_if_register(word, line, file_name) == -1)
-        {
-            fprintf(stdout, "undefined variable (line %d) in file %s.\n",line, file_name);
-            return NULL;
-        }
-        insert_bits(&by_word, 2, 5, check_if_register(word, line, file_name));
-    }/*now checks if its a register*/
-    else if((register_num = check_if_register(word, line, file_name)) != -1)
-    {
-        insert_bits(&res->word, 4, 5, 3);
-        by_word = 0;
-        insert_bits(&by_word, START_DEST_REGISTER, END_DEST_REGISTER, register_num);
-        add_binary_node(&res, by_word);
-    }
-    else
-    {
-        fprintf(stdout, "undefined text or illegal source (line %d) in file %s.\n",line, file_name);
-        return NULL;
-    }
-
-    /*start getting the dest*/
-    strtok(word, " ");
-    if(word == NULL)
-    {
-        fprintf(stdout, "missing parameters (line %d) in file %s.\n",line, file_name);
-        return NULL;
-    }
-    while(isspace(*word)) word++;
-    /*check if it is a number*/
-    if(*word == '#')
-    {
-        word++;
-        insert_bits(&res->word, 2, 3, 0);
-        save_word = word;
-        insert_bits(&by_word, 2, 10, get_num(save_word, line, file_name));
-        add_binary_node(&res, by_word);
-    }/*now checks if its a register*/
-    else if((register_num = check_if_register(word, line, file_name)) != -1)
-    {
-        insert_bits(&res->word, 2, 3, 3);
-        by_word = 0;
-        insert_bits(&by_word, START_DEST_REGISTER, END_DEST_REGISTER, register_num);
-        add_binary_node(&res, by_word);
-    }/*now checks if its a matrix*/
-    else if(strtok(word,"[") != NULL && (temp_label = find_label(labels_table, strtok(word,"["))) != NULL)
-    {
-        by_word = 0;
-        insert_bits(&res->word, 2, 3, 2);
-        insert_bits(&by_word, 2, 10, temp_label->address);
-        insert_bits(&by_word, 0, 1, 2);
-        add_binary_node(&res, by_word);
-        by_word = 0;
-        strtok(word, "]")
-        if(check_if_register(word, line, file_name) == -1)
-        {
-            fprintf(stdout, "undefined variable (line %d) in file %s.\n",line, file_name);
-            return NULL;
-        }
-        insert_bits(&by_word, 6, 9, check_if_register(word, line, file_name));
-        strtok(NULL, "[");
-        if(isspace(*word))
-        {
-            fprintf(stdout, "illegal space (line %d) in file %s.\n",line, file_name);
-            return NULL;
-        }
-        strtok(NULL,"]");
-        if(check_if_register(word, line, file_name) == -1)
-        {
-            fprintf(stdout, "undefined variable (line %d) in file %s.\n",line, file_name);
-            return NULL;
-        }
-        insert_bits(&by_word, 2, 5, check_if_register(word, line, file_name));
-    }/*checks if it is a label*/
-    else if(strtok(word," ") != NULL && temp_label = find_label(labels_table, strtok(word," ")))
-    {
-        by_word = 0;
-        insert_bits(&res->word, 2, 3, 1);
-        insert_bits(&by_word, 2, 10, temp_label->address);
-        insert_bits(&by_word, 0, 1, 2);
-        add_binary_node(&res, by_word);
-    }
-    else
-    {
-        fprintf(stdout, "undefined text (line %d) in file %s.\n",line, file_name);
-        return NULL;
-    }
-    /*searching for a comma*/
-    strtok(word, " ");
-    if(word == NULL)
-    {
-        fprintf(stdout, "missing arguments (line %d) in file %s.\n",line, file_name);
-        return NULL;
-    }
+    float count_ic = 1;
+    char* start;
 
     while(*word != '\0' && isspace(*word)) word++;
-    if(*word != ',')
+    if(*word == '\0')
     {
-        fprintf(stdout, "missing comma (line %d) in file %s.\n",line, file_name);
-        return NULL;
+        add_error("missing parameters ", line, file_name);
     }
+    start = word;
 
-
-    /*checking if there are illegal chars at end of command*/
-    if(strtok(word," ") != NULL)
+    if(*start == '#')
     {
-        fprintf(stdout, "illegal text (line %d) in file %s.\n",line, file_name);
-        return NULL;
+        count_ic++;
     }
-    return res;
-}
-/*source: 0,1,2,3. dest: 0,1,2,3*/
-binary* code_for_one(char* word, int line, char* file_name, int opcode)
-{
-    char* save_word;
-    short by_word = 0, register_num;
-    labels* temp_label;
-    binary* res = (binary*)malloc(sizeof(binary));
-    if(!res)
+    else if(strchr(start, '[') != NULL)
     {
-        fprintf(stdout, "memory allocation error.\n");
-        exit(1);
+        count_ic += 2;
     }
-    res->word = 0;
-
-    insert_bits(&res->word, START_OPCODE, END_OPCODE, opcode);
-    /*start getting the source*/
-    strtok(word, " ");
-    if(word == NULL)
+    else if(strchr(start, 'r') != NULL)
     {
-        fprintf(stdout, "missing parameters (line %d) in file %s.\n",line, file_name);
-        return NULL;
-    }
-    while(isspace(*word)) word++;
-    /*now the input may be four things 1) label, 2) number, 3) register, 4) calling a matrix*/
-    /*check if it is a number*/
-    if(*word == '#')
-    {
-        word++;
-        insert_bits(&res->word, 4, 5, 0);
-        save_word = word;
-        insert_bits(&by_word, 2, 10, get_num(save_word, line, file_name));
-        add_binary_node(&res, by_word);
-    }/*now checks if its a register*/
-    else if((register_num = check_if_register(word, line, file_name)) != -1)
-    {
-        insert_bits(&res->word, 4, 5, 3);
-        by_word = 0;
-        insert_bits(&by_word, START_DEST_REGISTER, END_DEST_REGISTER, register_num);
-        add_binary_node(&res, by_word);
-    }/*now checks if its a matrix*/
-    else if(strtok(word,"[") != NULL && (temp_label = find_label(labels_table, strtok(word,"["))) != NULL)
-    {
-        by_word = 0;
-        insert_bits(&res->word, 4, 5, 2);
-        insert_bits(&by_word, 2, 10, temp_label->address);
-        insert_bits(&by_word, 0, 1, 2);
-        add_binary_node(&res, by_word);
-        by_word = 0;
-        strtok(word, "]")
-        if(check_if_register(word, line, file_name) == -1)
-        {
-            fprintf(stdout, "undefined variable (line %d) in file %s.\n",line, file_name);
-            return NULL;
-        }
-        insert_bits(&by_word, 6, 9, check_if_register(word, line, file_name));
-        strtok(NULL, "[");
-        if(isspace(*word))
-        {
-            fprintf(stdout, "illegal space (line %d) in file %s.\n",line, file_name);
-            return NULL;
-        }
-        strtok(NULL,"]");
-        if(check_if_register(word, line, file_name) == -1)
-        {
-            fprintf(stdout, "undefined variable (line %d) in file %s.\n",line, file_name);
-            return NULL;
-        }
-        insert_bits(&by_word, 2, 5, check_if_register(word, line, file_name));
-    }/*checks if it is a label*/
-    else if(strtok(word," ") != NULL && temp_label = find_label(labels_table, strtok(word," ")))
-    {
-        by_word = 0;
-        insert_bits(&res->word, 4, 5, 1);
-        insert_bits(&by_word, 2, 10, temp_label->address);
-        insert_bits(&by_word, 0, 1, 2);
-        add_binary_node(&res, by_word);
+        count_ic += 0.5;
     }
     else
     {
-        fprintf(stdout, "undefined text (line %d) in file %s.\n",line, file_name);
-        return NULL;
+        count_ic++;
     }
-    /*searching for a comma*/
-    strtok(word, " ");
-    if(word == NULL)
+
+    start = strchr(start, ',');
+    if(!start)
     {
-        fprintf(stdout, "missing arguments (line %d) in file %s.\n",line, file_name);
-        return NULL;
+        add_error("missing comma ",line, file_name);
+        count_ic += 2;
+        return (count_ic > (int)count_ic)? (int)(count_ic+1):(int)count_ic;
     }
+    start++;
+
+    while(*start != '\0' && isspace(*start)) start++;
+    if(*start == '\0')
+    {
+        add_error("missing parameters ", line, file_name);
+    }
+
+    if(*start == '#')
+    {
+        count_ic++;
+    }
+    else if(strchr(start, '[') != NULL)
+    {
+        count_ic += 2;
+    }
+    else if(strchr(start, 'r') != NULL)
+    {
+        count_ic += 0.5;
+    }
+    else
+    {
+        count_ic++;
+    }
+    return (count_ic > (int)count_ic)? (int)(count_ic+1):(int)count_ic;
+}
+int count_ic_on_word_one(char* word, int line, char* file_name)
+{
+    int count_ic = 1;
+    char* start;
 
     while(*word != '\0' && isspace(*word)) word++;
-    if(*word != ',')
+    if(*word == '\0')
     {
-        fprintf(stdout, "missing comma (line %d) in file %s.\n",line, file_name);
-        return NULL;
+        add_error("missing parameters ", line, file_name);
     }
-    /*getting the dest*/
-    if(*word == '#')
-    {
-        word++;
-        insert_bits(&res->word, 2, 3, 0);
-        save_word = word;
-        insert_bits(&by_word, 2, 10, get_num(save_word, line, file_name));
-        add_binary_node(&res, by_word);
-    }/*now checks if its a register*/
-    else if((register_num = check_if_register(word, line, file_name)) != -1)
-    {
-        insert_bits(&res->word, 2, 3, 3);
-        by_word = 0;
-        insert_bits(&by_word, START_DEST_REGISTER, END_DEST_REGISTER, register_num);
-        add_binary_node(&res, by_word);
-    }/*now checks if its a matrix*/
-    else if(strtok(word,"[") != NULL && (temp_label = find_label(labels_table, strtok(word,"["))) != NULL)
-    {
-        by_word = 0;
-        insert_bits(&res->word, 2, 3, 2);
-        insert_bits(&by_word, 2, 10, temp_label->address);
-        insert_bits(&by_word, 0, 1, 2);
-        add_binary_node(&res, by_word);
-        by_word = 0;
-        strtok(word, "]")
-        if(check_if_register(word, line, file_name) == -1)
-        {
-            fprintf(stdout, "undefined variable (line %d) in file %s.\n",line, file_name);
-            return NULL;
-        }
-        insert_bits(&by_word, 6, 9, check_if_register(word, line, file_name));
-        strtok(NULL, "[");
-        if(isspace(*word))
-        {
-            fprintf(stdout, "illegal space (line %d) in file %s.\n",line, file_name);
-            return NULL;
-        }
-        strtok(NULL,"]");
-        if(check_if_register(word, line, file_name) == -1)
-        {
-            fprintf(stdout, "undefined variable (line %d) in file %s.\n",line, file_name);
-            return NULL;
-        }
-        insert_bits(&by_word, 2, 5, check_if_register(word, line, file_name));
-    }/*checks if it is a label*/
-    else if(strtok(word," ") != NULL && temp_label = find_label(labels_table, strtok(word," ")))
-    {
-        by_word = 0;
-        insert_bits(&res->word, 2, 3, 1);
-        insert_bits(&by_word, 2, 10, temp_label->address);
-        insert_bits(&by_word, 0, 1, 2);
-        add_binary_node(&res, by_word);
-    }
-    else
-    {
-        fprintf(stdout, "undefined text (line %d) in file %s.\n",line, file_name);
-        return NULL;
-    }
-    /*checking if there are illegal chars at end of command*/
-    if(strtok(word," ") != NULL)
-    {
-        fprintf(stdout, "illegal text (line %d) in file %s.\n",line, file_name);
-        return NULL;
-    }
-    return res;
-}
-/*source: 1,2. dest: 1,2,3*/
-binary* code_for_four(char* word, int line, char* file_name, int opcode)
-{
-    char* save_word;
-    short by_word = 0, register_num;
-    labels* temp_label;
-    binary* res = (binary*)malloc(sizeof(binary));
-    if(!res)
-    {
-        fprintf(stdout, "memory allocation error.\n");
-        exit(1);
-    }
-    res->word = 0;
+    start = word;
 
-    insert_bits(&res->word, START_OPCODE, END_OPCODE, opcode);
-    /*getting the source*/
-    /*checks if it is a label*/
-    if((strtok(word," ") != NULL) && temp_label = find_label(labels_table, word))
+    if(*start == '#')
     {
-        by_word = 0;
-        insert_bits(&res->word, 4, 5, 1);
-        insert_bits(&by_word, 2, 10, temp_label->address);
-        insert_bits(&by_word, 0, 1, 2);
-        add_binary_node(&res, by_word);
-    }/*now checks if its a matrix*/
-    else if(strtok(word,"[") != NULL && (temp_label = find_label(labels_table, strtok(word,"["))) != NULL)
+        count_ic++;
+    }
+    else if(strchr(start, '[') != NULL)
     {
-        by_word = 0;
-        insert_bits(&res->word, 4, 5, 2);
-        insert_bits(&by_word, 2, 10, temp_label->address);
-        insert_bits(&by_word, 0, 1, 2);
-        add_binary_node(&res, by_word);
-        by_word = 0;
-        strtok(word, "]")
-        if(check_if_register(word, line, file_name) == -1)
-        {
-            fprintf(stdout, "undefined variable (line %d) in file %s.\n",line, file_name);
-            return NULL;
-        }
-        insert_bits(&by_word, 6, 9, check_if_register(word, line, file_name));
-        strtok(NULL, "[");
-        if(isspace(*word))
-        {
-            fprintf(stdout, "illegal space (line %d) in file %s.\n",line, file_name);
-            return NULL;
-        }
-        strtok(NULL,"]");
-        if(check_if_register(word, line, file_name) == -1)
-        {
-            fprintf(stdout, "undefined variable (line %d) in file %s.\n",line, file_name);
-            return NULL;
-        }
-        insert_bits(&by_word, 2, 5, check_if_register(word, line, file_name));
+        count_ic += 2;
+    }
+    else if(strchr(start, 'r') != NULL)
+    {
+        count_ic += 0.5;
     }
     else
     {
-        fprintf(stdout, "undefined text or illegal source (line %d) in file %s.\n",line, file_name);
-        return NULL;
+        count_ic++;
     }
-    /*searching for a comma*/
-    strtok(word, " ");
-    if(word == NULL)
+
+    start = strchr(start, ',');
+    if(!start)
     {
-        fprintf(stdout, "missing arguments (line %d) in file %s.\n",line, file_name);
-        return NULL;
+        add_error("missing comma ",line, file_name);
+        count_ic += 2;
+        return (count_ic > (int)count_ic)? (int)(count_ic+1):(int)count_ic;
     }
+    start++;
+
+    while(*start != '\0' && isspace(*start)) start++;
+    if(*start == '\0')
+    {
+        add_error("missing parameters ", line, file_name);
+    }
+
+    if(*start == '#')
+    {
+        count_ic++;
+    }
+    else if(strchr(start, '[') != NULL)
+    {
+        count_ic += 2;
+    }
+    else if(strchr(start, 'r') != NULL)
+    {
+        count_ic += 0.5;
+    }
+    else
+    {
+        count_ic++;
+    }
+    return (count_ic > (int)count_ic)? (int)(count_ic+1):(int)count_ic;
+}
+int count_ic_on_word_four(char* word, int line, char* file_name)
+{
+    int count_ic = 1;
+    char* start;
 
     while(*word != '\0' && isspace(*word)) word++;
-    if(*word != ',')
+    if(*word == '\0')
     {
-        fprintf(stdout, "missing comma (line %d) in file %s.\n",line, file_name);
-        return NULL;
+        add_error("missing parameters ", line, file_name);
     }
-    /*start getting the dest*/
-    if((strtok(word," ") != NULL) && temp_label = find_label(labels_table, word))
+    start = word;
+
+    if(strchr(start, '[') != NULL)
     {
-        by_word = 0;
-        insert_bits(&res->word, 2, 3, 1);
-        insert_bits(&by_word, 2, 10, temp_label->address);
-        insert_bits(&by_word, 0, 1, 2);
-        add_binary_node(&res, by_word);
-    }/*now checks if its a matrix*/
-    else if(strtok(word,"[") != NULL && (temp_label = find_label(labels_table, strtok(word,"["))) != NULL)
-    {
-        by_word = 0;
-        insert_bits(&res->word, 2, 3, 2);
-        insert_bits(&by_word, 2, 10, temp_label->address);
-        insert_bits(&by_word, 0, 1, 2);
-        add_binary_node(&res, by_word);
-        by_word = 0;
-        strtok(word, "]")
-        if(check_if_register(word, line, file_name) == -1)
-        {
-            fprintf(stdout, "undefined variable (line %d) in file %s.\n",line, file_name);
-            return NULL;
-        }
-        insert_bits(&by_word, 6, 9, check_if_register(word, line, file_name));
-        strtok(NULL, "[");
-        if(isspace(*word))
-        {
-            fprintf(stdout, "illegal space (line %d) in file %s.\n",line, file_name);
-            return NULL;
-        }
-        strtok(NULL,"]");
-        if(check_if_register(word, line, file_name) == -1)
-        {
-            fprintf(stdout, "undefined variable (line %d) in file %s.\n",line, file_name);
-            return NULL;
-        }
-        insert_bits(&by_word, 2, 5, check_if_register(word, line, file_name));
-    }/*now checks if its a register*/
-    else if((register_num = check_if_register(word, line, file_name)) != -1)
-    {
-        insert_bits(&res->word, 2, 3, 3);
-        by_word = 0;
-        insert_bits(&by_word, START_DEST_REGISTER, END_DEST_REGISTER, register_num);
-        add_binary_node(&res, by_word);
+        count_ic += 2;
     }
     else
     {
-        fprintf(stdout, "undefined text or illegal source (line %d) in file %s.\n",line, file_name);
-        return NULL;
+        count_ic++;
     }
-    /*checks for illegal text at end of command*/
-    if(strtok(word," ") != NULL)
-    {
-        fprintf(stdout, "illegal text (line %d) in file %s.\n",line, file_name);
-        return NULL;
-    }
-    return res;
-}
-/*source: none. dest: 1,2,3*/
-binary* code_for_five(char* word, int line, char* file_name, int opcode)
-{
-    char* save_word;
-    short by_word = 0, register_num;
-    labels* temp_label;
-    binary* res = (binary*)malloc(sizeof(binary));
-    if(!res)
-    {
-        fprintf(stdout, "memory allocation error.\n");
-        exit(1);
-    }
-    res->word = 0;
 
-    insert_bits(&res->word, START_OPCODE, END_OPCODE, opcode);
-
-    strtok(word, " ");
-    if(word == NULL)
+    start = strchr(word, ',');
+    if(!start)
     {
-        fprintf(stdout, "missing parameters (line %d) in file %s.\n",line, file_name);
-        return NULL;
+        add_error("missing comma ",line, file_name);
+        count_ic += 2;
+        return (count_ic > (int)count_ic)? (int)(count_ic+1):(int)count_ic;
     }
-    while(isspace(*word)) word++;
-    /*now the input may be four things 1) label, 2) number, 3) register, 4) calling a matrix*/
-    /*checks if its a register*/
-    if((register_num = check_if_register(word, line, file_name)) != -1)
+    start++;
+
+    while(*start != '\0' && isspace(*start)) start++;
+    if(*start == '\0')
     {
-        insert_bits(&res->word, 2, 3, 3);
-        by_word = 0;
-        insert_bits(&by_word, START_DEST_REGISTER, END_DEST_REGISTER, register_num);
-        add_binary_node(&res, by_word);
-    }/*now checks if its a matrix*/
-    else if(strtok(word,"[") != NULL && (temp_label = find_label(labels_table, strtok(word,"["))) != NULL)
+        add_error("missing parameters ", line, file_name);
+    }
+
+    if(strchr(start, '[') != NULL)
     {
-        by_word = 0;
-        insert_bits(&res->word, 2, 3, 2);
-        insert_bits(&by_word, 2, 10, temp_label->address);
-        insert_bits(&by_word, 0, 1, 2);
-        add_binary_node(&res, by_word);
-        by_word = 0;
-        strtok(word, "]")
-        if(check_if_register(word, line, file_name) == -1)
-        {
-            fprintf(stdout, "undefined variable (line %d) in file %s.\n",line, file_name);
-            return NULL;
-        }
-        insert_bits(&by_word, 6, 9, check_if_register(word, line, file_name));
-        strtok(NULL, "[");
-        if(isspace(*word))
-        {
-            fprintf(stdout, "illegal space (line %d) in file %s.\n",line, file_name);
-            return NULL;
-        }
-        strtok(NULL,"]");
-        if(check_if_register(word, line, file_name) == -1)
-        {
-            fprintf(stdout, "undefined variable (line %d) in file %s.\n",line, file_name);
-            return NULL;
-        }
-        insert_bits(&by_word, 2, 5, check_if_register(word, line, file_name));
-    }/*checks if it is a label*/
-    else if(strtok(word," ") != NULL && temp_label = find_label(labels_table, strtok(word," ")))
+        count_ic += 2;
+    }
+    else if(strchr(start, 'r') != NULL)
     {
-        by_word = 0;
-        insert_bits(&res->word, 2, 3, 1);
-        insert_bits(&by_word, 2, 10, temp_label->address);
-        insert_bits(&by_word, 0, 1, 2);
-        add_binary_node(&res, by_word);
+        count_ic += 0.5;
     }
     else
     {
-        fprintf(stdout, "undefined text (line %d) in file %s.\n",line, file_name);
-        return NULL;
+        count_ic++;
     }
-    if(strtok(word," ") != NULL)
-    {
-        fprintf(stdout, "illegal text (line %d) in file %s.\n",line, file_name);
-        return NULL;
-    }
-    return res;
+    return (count_ic > (int)count_ic)? (int)(count_ic+1):(int)count_ic;
 }
-/*source: none. dest: 0,1,2,3*/
-binary* code_for_thirteen(char* word, int line, char* file_name, int opcode, label* labels_table)
+int count_ic_on_word_five(char* word, int line, char* file_name)
 {
-    char* save_word;
-    short by_word = 0, register_num;
-    labels* temp_label;
-    binary* res = (binary*)malloc(sizeof(binary));
-    if(!res)
-    {
-        fprintf(stdout, "memory allocation error.\n");
-        exit(1);
-    }
-    res->word = 0;
+    int count_ic = 1;
+    char* start;
 
-    insert_bits(&res->word, START_OPCODE, END_OPCODE, opcode);
-
-    strtok(word, " ");
-    if(word == NULL)
+    while(*word != '\0' && isspace(*word)) word++;
+    if(*word == '\0')
     {
-        fprintf(stdout, "missing parameters (line %d) in file %s.\n",line, file_name);
-        return NULL;
+        add_error("missing parameters ", line, file_name);
     }
-    while(isspace(*word)) word++;
-    /*now the input may be four things 1) label, 2) number, 3) register, 4) calling a matrix*/
-    /*check if it is a number*/
-    if(*word == '#')
+    start = word;
+
+    if(strchr(start, '[') != NULL)
     {
-        word++;
-        insert_bits(&res->word, 2, 3, 0);
-        save_word = word;
-        insert_bits(&by_word, 2, 10, get_num(save_word, line, file_name));
-        add_binary_node(&res, by_word);
-    }/*now checks if its a register*/
-    else if((register_num = check_if_register(word, line, file_name)) != -1)
+        count_ic += 2;
+    }
+    else if(strchr(start, 'r') != NULL)
     {
-        insert_bits(&res->word, 2, 3, 3);
-        by_word = 0;
-        insert_bits(&by_word, START_DEST_REGISTER, END_DEST_REGISTER, register_num);
-        add_binary_node(&res, by_word);
-    }/*now checks if its a matrix*/
-    else if(strtok(word,"[") != NULL && (temp_label = find_label(labels_table, strtok(word,"["))) != NULL)
-    {
-        by_word = 0;
-        insert_bits(&res->word, 2, 3, 2);
-        insert_bits(&by_word, 2, 10, temp_label->address);
-        insert_bits(&by_word, 0, 1, 2);
-        add_binary_node(&res, by_word);
-        by_word = 0;
-        strtok(word, "]")
-        if(check_if_register(word, line, file_name) == -1)
-        {
-            fprintf(stdout, "undefined variable (line %d) in file %s.\n",line, file_name);
-            return NULL;
-        }
-        insert_bits(&by_word, 6, 9, check_if_register(word, line, file_name));
-        strtok(NULL, "[");
-        if(isspace(*word))
-        {
-            fprintf(stdout, "illegal space (line %d) in file %s.\n",line, file_name);
-            return NULL;
-        }
-        strtok(NULL,"]");
-        if(check_if_register(word, line, file_name) == -1)
-        {
-            fprintf(stdout, "undefined variable (line %d) in file %s.\n",line, file_name);
-            return NULL;
-        }
-        insert_bits(&by_word, 2, 5, check_if_register(word, line, file_name));
-    }/*checks if it is a label*/
-    else if(strtok(word," ") != NULL && temp_label = find_label(labels_table, strtok(word," ")))
-    {
-        by_word = 0;
-        insert_bits(&res->word, 2, 3, 1);
-        insert_bits(&by_word, 2, 10, temp_label->address);
-        insert_bits(&by_word, 0, 1, 2);
-        add_binary_node(&res, by_word);
+        count_ic += 0.5;
     }
     else
     {
-        fprintf(stdout, "undefined text (line %d) in file %s.\n",line, file_name);
-        return NULL;
+        count_ic++;
     }
-    if(strtok(word," ") != NULL)
-    {
-        fprintf(stdout, "illegal text (line %d) in file %s.\n",line, file_name);
-        return NULL;
-    }
-    return res;
+    return (count_ic > (int)count_ic)? (int)(count_ic+1):(int)count_ic;
 }
-/*source: none. dest: none*/
-binary* code_for_fourteen(char* word, int line, int file_name, int opcode)
+int count_ic_on_word_thirteen(char* word, int line, char* file_name)
 {
-    binary* res = (binary*)malloc(sizeof(binary));
-    if(!res)
-    {
-        fprintf(stdout, "memory allocation error.\n");
-        exit(1);
-    }
-    res->word = 0;
-    insert_bits(&res->word, START_OPCODE, END_OPCODE, opcode);
-    res->next = NULL;
-    return res;
-}
+    float count_ic = 1;
+    char* start;
 
+    while(*word != '\0' && isspace(*word)) word++;
+    if(*word == '\0')
+    {
+        add_error("missing parameters ", line, file_name);
+    }
+    start = word;
+
+    if(*start == '#')
+    {
+        count_ic++;
+    }
+    else if(strchr(start, '[') != NULL)
+    {
+        count_ic += 2;
+    }
+    else if(strchr(start, 'r') != NULL)
+    {
+        count_ic += 0.5;
+    }
+    else
+    {
+        count_ic++;
+    }
+    return (count_ic > (int)count_ic)? (int)(count_ic+1):(int)count_ic;
+}
+int count_ic_on_word_fourteen(char* word, int line, char* file_name)
+{
+    while(*word != '\0' && isspace(*word)) word++;/*"    stop" ->-> "stop"*/
+    while(*word != '\0' && isprint(*word)) word++;/*"stop  xxx" ->-> "   xxx"  */
+    while(*word != '\0' && isspace(*word)) word++;
+    if(*word != '\0')
+    {
+        add_error("illegal text after command ",line, file_name);
+    }
+    return 1;
+}

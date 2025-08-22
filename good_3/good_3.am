@@ -1,0 +1,29 @@
+MAIN: mov #-1,r2 
+ cmp r3,#5 
+ add r6,r7 
+ sub r1,r4 
+ lea STR,r6 
+ clr r2 
+ not r2 
+ inc r2 
+ red r1 
+ prn #-5 
+ prn r1 
+ mov M1[r2][r7],LENGTH 
+ add r2,STR
+.entry LOOP
+ .entry LENGTH
+ .extern L3
+ .extern W
+ add r2,STR
+ LOOP: jmp W
+ prn #-5
+ sub r1, r4
+ inc K
+ K: .data 22
+ M1: .mat [2][2] 1,2,3,4 
+ mov M1[r3][r3],r3
+ bne L3
+ END: stop
+ STR: .string "abcdef"
+ LENGTH: .data 6,-9,15
